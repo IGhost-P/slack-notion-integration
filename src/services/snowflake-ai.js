@@ -137,6 +137,72 @@ class SnowflakeAIService {
     }
   }
 
+  // 질문 분류 메서드 (기존 클래스에 추가)
+  async classifyQuestion(question) {
+    const classificationPrompt = `사용자 질문을 분석하고 다음 JSON 형태로 분류해주세요:
+
+사용자 질문: "${question}"
+
+출력 형식:
+{
+  "type": "search|create|summary|general",
+  "keywords": ["키워드1", "키워드2"],
+  "intent": "사용자의 의도 설명",
+  "confidence": 0.8
+}
+
+분류 기준:
+- search: 기존 정보를 찾거나 검색하려는 질문 (찾아, 알려, 무엇, 어떤 등)
+- create: 새로운 노트나 페이지를 만들려는 요청 (작성, 정리, 생성 등)
+- summary: 요약이나 정리를 요청하는 질문 (요약, 정리 등)
+- general: 일반적인 대화나 질문
+
+반드시 유효한 JSON만 응답해주세요.`;
+
+    try {
+      const response = await this.callOpenAI(classificationPrompt);
+      return JSON.parse(response);
+    } catch (error) {
+      console.log("⚠️  질문 분류 실패, 기본값 사용");
+      return {
+        type: "search",
+        keywords: question.split(" ").filter((word) => word.length > 2),
+        intent: "검색 질문으로 처리",
+        confidence: 0.5
+      };
+    }
+  }
+
+  // RAG 프롬프트 생성 메서드 (기존 클래스에 추가)
+  buildRAGPrompt(question, context) {
+    return `당신은 Notion 데이터베이스의 정보를 기반으로 질문에 답변하는 AI 어시스턴트입니다.
+
+컨텍스트 (Notion 페이지 내용):
+${context}
+
+사용자 질문: "${question}"
+
+지침:
+1. 주어진 컨텍스트를 기반으로만 답변하세요
+2. 컨텍스트에 없는 정보는 "제공된 정보에서는 찾을 수 없습니다"라고 명시하세요
+3. 가능한 한 구체적이고 정확한 답변을 제공하세요
+4. 관련된 페이지나 섹션을 언급해주세요
+5. 한국어로 친근하게 답변해주세요
+
+답변:`;
+  }
+
+  // RAG 답변 생성 메서드 (기존 클래스에 추가)
+  async generateRAGAnswer(question, notionContext) {
+    try {
+      const ragPrompt = this.buildRAGPrompt(question, notionContext);
+      const response = await this.callOpenAI(ragPrompt);
+      return response;
+    } catch (error) {
+      throw new Error(`RAG 답변 생성 실패: ${error.message}`);
+    }
+  }
+
   // 연결 종료
   async disconnect() {
     return new Promise((resolve) => {

@@ -435,6 +435,241 @@ class NotionService {
     return "Untitled";
   }
 
+  // 키워드로 페이지 검색 (기존 클래스에 추가)
+  async searchPagesByKeywords(keywords, maxResults = 5) {
+    try {
+      console.log(`🔍 키워드 검색: "${keywords}"`);
+
+      const searchResponse = await this.notion.search({
+        query: keywords,
+        filter: {
+          property: "object",
+          value: "page"
+        },
+        page_size: maxResults
+      });
+
+      const relevantPages = [];
+
+      for (const page of searchResponse.results) {
+        try {
+          const pageContent = await this.getPageFullContent(page.id);
+
+          relevantPages.push({
+            id: page.id,
+            title: this.extractPageTitle(page),
+            url: page.url,
+            content: pageContent,
+            lastEdited: page.last_edited_time,
+            relevanceScore: this.calculateRelevance(keywords, pageContent)
+          });
+        } catch (error) {
+          console.log(`⚠️  페이지 ${page.id} 읽기 실패: ${error.message}`);
+        }
+      }
+
+      // 관련도 순으로 정렬
+      relevantPages.sort((a, b) => b.relevanceScore - a.relevanceScore);
+
+      console.log(`✅ 검색 완료: ${relevantPages.length}개 페이지 발견`);
+      return relevantPages;
+    } catch (error) {
+      console.error("❌ 페이지 검색 실패:", error.message);
+      throw new Error(`페이지 검색 실패: ${error.message}`);
+    }
+  }
+
+  // 페이지 전체 내용 가져오기 (기존 클래스에 추가)
+  async getPageFullContent(pageId) {
+    try {
+      // 페이지 기본 정보
+      const page = await this.notion.pages.retrieve({ page_id: pageId });
+
+      // 페이지 블록들 가져오기
+      const blocks = await this.getAllPageBlocks(pageId);
+
+      // 텍스트 내용 추출
+      const textContent = this.extractTextFromBlocks(blocks);
+
+      return {
+        title: this.extractPageTitle(page),
+        content: textContent,
+        url: page.url,
+        lastEdited: page.last_edited_time
+      };
+    } catch (error) {
+      throw new Error(`페이지 내용 읽기 실패: ${error.message}`);
+    }
+  }
+
+  // 모든 블록 재귀적으로 가져오기 (기존 클래스에 추가)
+  async getAllPageBlocks(blockId) {
+    const allBlocks = [];
+    let hasMore = true;
+    let nextCursor = undefined;
+
+    while (hasMore) {
+      const response = await this.notion.blocks.children.list({
+        block_id: blockId,
+        start_cursor: nextCursor,
+        page_size: 100
+      });
+
+      for (const block of response.results) {
+        allBlocks.push(block);
+
+        // 자식 블록이 있는 경우 재귀적으로 가져오기
+        if (block.has_children) {
+          const childBlocks = await this.getAllPageBlocks(block.id);
+          allBlocks.push(...childBlocks);
+        }
+      }
+
+      hasMore = response.has_more;
+      nextCursor = response.next_cursor;
+    }
+
+    return allBlocks;
+  }
+
+  // 블록에서 텍스트 추출 (기존 클래스에 추가)
+  extractTextFromBlocks(blocks) {
+    let content = "";
+
+    for (const block of blocks) {
+      switch (block.type) {
+        case "paragraph":
+          content += this.extractRichTextContent(block.paragraph.rich_text) + "\n";
+          break;
+        case "heading_1":
+          content += "# " + this.extractRichTextContent(block.heading_1.rich_text) + "\n";
+          break;
+        case "heading_2":
+          content += "## " + this.extractRichTextContent(block.heading_2.rich_text) + "\n";
+          break;
+        case "heading_3":
+          content += "### " + this.extractRichTextContent(block.heading_3.rich_text) + "\n";
+          break;
+        case "bulleted_list_item":
+          content += "- " + this.extractRichTextContent(block.bulleted_list_item.rich_text) + "\n";
+          break;
+        case "numbered_list_item":
+          content += "1. " + this.extractRichTextContent(block.numbered_list_item.rich_text) + "\n";
+          break;
+        case "quote":
+          content += "> " + this.extractRichTextContent(block.quote.rich_text) + "\n";
+          break;
+        case "callout":
+          content += "📌 " + this.extractRichTextContent(block.callout.rich_text) + "\n";
+          break;
+        case "toggle":
+          content += "📁 " + this.extractRichTextContent(block.toggle.rich_text) + "\n";
+          break;
+        case "code":
+          content += "```\n" + this.extractRichTextContent(block.code.rich_text) + "\n```\n";
+          break;
+        case "divider":
+          content += "---\n";
+          break;
+      }
+    }
+
+    return content.trim();
+  }
+
+  // Rich Text에서 플레인 텍스트 추출 (기존 클래스에 추가)
+  extractRichTextContent(richTextArray) {
+    if (!richTextArray || !Array.isArray(richTextArray)) return "";
+
+    return richTextArray
+      .map((text) => text.text?.content || "")
+      .join("")
+      .trim();
+  }
+
+  // 관련도 점수 계산 (기존 클래스에 추가)
+  calculateRelevance(query, pageContent) {
+    const queryWords = query.toLowerCase().split(/\s+/);
+    const contentText = (pageContent.title + " " + pageContent.content).toLowerCase();
+
+    let score = 0;
+
+    for (const word of queryWords) {
+      if (word.length > 2) {
+        // 2글자 이상만 검사
+        const matches = (contentText.match(new RegExp(word, "g")) || []).length;
+        score += matches * word.length; // 단어 길이에 비례해서 가중치
+      }
+    }
+
+    return score;
+  }
+
+  // RAG용 컨텍스트 생성 (기존 클래스에 추가)
+  createRAGContext(relevantPages, maxContextLength = 3000) {
+    let context = "";
+    let usedLength = 0;
+
+    for (const page of relevantPages) {
+      // 🔧 안전한 컨텐츠 추출 (다양한 데이터 구조 대응)
+      let pageContent = "";
+
+      if (page.content) {
+        if (typeof page.content === "string") {
+          // content가 문자열인 경우
+          pageContent = page.content;
+        } else if (page.content.content) {
+          // content가 객체이고 content 속성이 있는 경우
+          pageContent = page.content.content;
+        } else if (page.content.title) {
+          // content가 객체이고 title만 있는 경우
+          pageContent = page.content.title;
+        } else {
+          // content 객체를 JSON으로 변환
+          pageContent = JSON.stringify(page.content);
+        }
+      } else {
+        // content가 없는 경우 기본 정보 사용
+        pageContent = `페이지 정보: ${page.title || "Unknown"}`;
+      }
+
+      const pageText = `# ${page.title || "Untitled"}\n${pageContent}\n\n`;
+
+      if (usedLength + pageText.length <= maxContextLength) {
+        context += pageText;
+        usedLength += pageText.length;
+      } else {
+        // 남은 공간에 맞게 자르기
+        const remainingSpace = maxContextLength - usedLength;
+        if (remainingSpace > 100) {
+          context += pageText.substring(0, remainingSpace - 10) + "...\n\n";
+        }
+        break;
+      }
+    }
+
+    return {
+      context: context.trim(),
+      usedPages: relevantPages.slice(0, Math.ceil(usedLength / 1000)),
+      totalLength: usedLength
+    };
+  }
+
+  debugPageStructure(page) {
+    console.log("📊 페이지 구조 디버깅:");
+    console.log(`   제목: ${page.title}`);
+    console.log(`   content 타입: ${typeof page.content}`);
+    console.log(`   content 존재: ${page.content ? "O" : "X"}`);
+
+    if (page.content) {
+      console.log(`   content 구조:`, Object.keys(page.content));
+      if (page.content.content) {
+        console.log(`   content.content 타입: ${typeof page.content.content}`);
+        console.log(`   content.content 길이: ${page.content.content?.length || 0}`);
+      }
+    }
+  }
+
   // 연결 테스트
   async testConnection() {
     try {

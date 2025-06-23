@@ -23,3 +23,36 @@
 {"level":"INFO","message":"[1:56:39.943 PM]: No config file path found. Client config will not be used."}
 {"level":"INFO","message":"[1:56:39.943 PM]: Easy Logging is disabled as no config has been found"}
 {"level":"INFO","message":"[1:56:39.946 PM]: Connection[id: ccaac860-ade9-45d9-b1f1-4c43508688d7] - connected successfully after 13.401481999999987 milliseconds"}
+{"level":"INFO","message":"[3:01:25.884 PM]: Creating new connection object"}
+{"level":"INFO","message":"[3:01:26.319 PM]: Creating Connection[id: 8465fc08-c900-4447-a45e-994619b057b4] with host: NEXON-DS.snowflakecomputing.com, account: NEXON-DS, accessUrl: https://NEXON-DS.snowflakecomputing.com, user: SWYANG@NEXON.CO.KR, password is not provided, role: EXPERT_USER, database: NXLOG, schema: PUBLIC, warehouse: DEFAULT_WAREHOUSE, region: undefined, authenticator: SNOWFLAKE_JWT, ocsp mode: FAIL_OPEN, os: darwin, os version: 22.1.0"}
+{"level":"INFO","message":"[3:01:26.320 PM]: Connection[id: 8465fc08-c900-4447-a45e-994619b057b4] additional details: passcode in password is provided, passcode is not provided, private key is provided, application: undefined, client name: snowflake-sdk, client version: 1.15.0, retry timeout: 300, private key path: undefined, private key pass is not provided, client store temporary credential: false, browser response timeout: 120000"}
+{"level":"INFO","message":"[3:01:26.320 PM]: Connection[id: 8465fc08-c900-4447-a45e-994619b057b4] - connection object created successfully."}
+{"level":"INFO","message":"[3:01:26.321 PM]: Connection[id: 8465fc08-c900-4447-a45e-994619b057b4] - connecting. Associated Snowflake domain: GLOBAL"}
+{"level":"INFO","message":"[3:01:26.331 PM]: Connection[id: 8465fc08-c900-4447-a45e-994619b057b4] - authentication successful using: SNOWFLAKE_JWT"}
+{"level":"INFO","message":"[3:01:26.332 PM]: Trying to initialize Easy Logging"}
+{"level":"INFO","message":"[3:01:26.336 PM]: No client config detected."}
+{"level":"INFO","message":"[3:01:26.336 PM]: No config file path found. Client config will not be used."}
+{"level":"INFO","message":"[3:01:26.337 PM]: Easy Logging is disabled as no config has been found"}
+{"level":"INFO","message":"[3:01:26.339 PM]: Connection[id: 8465fc08-c900-4447-a45e-994619b057b4] - connected successfully after 18.4558049999996 milliseconds"}
+{"level":"INFO","message":"[7:41:59.594 AM]: Creating new connection object"}
+{"level":"INFO","message":"[7:42:00.033 AM]: Creating Connection[id: e97ef5bf-90fa-4aa7-9921-035a43035b61] with host: NEXON-DS.snowflakecomputing.com, account: NEXON-DS, accessUrl: https://NEXON-DS.snowflakecomputing.com, user: SWYANG@NEXON.CO.KR, password is not provided, role: EXPERT_USER, database: NXLOG, schema: PUBLIC, warehouse: DEFAULT_WAREHOUSE, region: undefined, authenticator: SNOWFLAKE_JWT, ocsp mode: FAIL_OPEN, os: darwin, os version: 22.1.0"}
+{"level":"INFO","message":"[7:42:00.034 AM]: Connection[id: e97ef5bf-90fa-4aa7-9921-035a43035b61] additional details: passcode in password is provided, passcode is not provided, private key is provided, application: undefined, client name: snowflake-sdk, client version: 1.15.0, retry timeout: 300, private key path: undefined, private key pass is not provided, client store temporary credential: false, browser response timeout: 120000"}
+{"level":"INFO","message":"[7:42:00.035 AM]: Connection[id: e97ef5bf-90fa-4aa7-9921-035a43035b61] - connection object created successfully."}
+{"level":"INFO","message":"[7:42:00.035 AM]: Connection[id: e97ef5bf-90fa-4aa7-9921-035a43035b61] - connecting. Associated Snowflake domain: GLOBAL"}
+{"level":"INFO","message":"[7:42:00.047 AM]: Connection[id: e97ef5bf-90fa-4aa7-9921-035a43035b61] - authentication successful using: SNOWFLAKE_JWT"}
+{"level":"INFO","message":"[7:42:00.047 AM]: Trying to initialize Easy Logging"}
+{"level":"INFO","message":"[7:42:00.050 AM]: No client config detected."}
+{"level":"INFO","message":"[7:42:00.051 AM]: No config file path found. Client config will not be used."}
+{"level":"INFO","message":"[7:42:00.052 AM]: Easy Logging is disabled as no config has been found"}
+{"level":"INFO","message":"[7:42:00.057 AM]: Connection[id: e97ef5bf-90fa-4aa7-9921-035a43035b61] - connected successfully after 21.518646999999874 milliseconds"}
+{"level":"INFO","message":"[7:47:02.642 AM]: Creating new connection object"}
+{"level":"INFO","message":"[7:47:03.057 AM]: Creating Connection[id: e81f2395-a2f4-4bab-90f5-575a6f5c937c] with host: NEXON-DS.snowflakecomputing.com, account: NEXON-DS, accessUrl: https://NEXON-DS.snowflakecomputing.com, user: SWYANG@NEXON.CO.KR, password is not provided, role: EXPERT_USER, database: NXLOG, schema: PUBLIC, warehouse: DEFAULT_WAREHOUSE, region: undefined, authenticator: SNOWFLAKE_JWT, ocsp mode: FAIL_OPEN, os: darwin, os version: 22.1.0"}
+{"level":"INFO","message":"[7:47:03.058 AM]: Connection[id: e81f2395-a2f4-4bab-90f5-575a6f5c937c] additional details: passcode in password is provided, passcode is not provided, private key is provided, application: undefined, client name: snowflake-sdk, client version: 1.15.0, retry timeout: 300, private key path: undefined, private key pass is not provided, client store temporary credential: false, browser response timeout: 120000"}
+{"level":"INFO","message":"[7:47:03.058 AM]: Connection[id: e81f2395-a2f4-4bab-90f5-575a6f5c937c] - connection object created successfully."}
+{"level":"INFO","message":"[7:47:03.058 AM]: Connection[id: e81f2395-a2f4-4bab-90f5-575a6f5c937c] - connecting. Associated Snowflake domain: GLOBAL"}
+{"level":"INFO","message":"[7:47:03.066 AM]: Connection[id: e81f2395-a2f4-4bab-90f5-575a6f5c937c] - authentication successful using: SNOWFLAKE_JWT"}
+{"level":"INFO","message":"[7:47:03.066 AM]: Trying to initialize Easy Logging"}
+{"level":"INFO","message":"[7:47:03.068 AM]: No client config detected."}
+{"level":"INFO","message":"[7:47:03.068 AM]: No config file path found. Client config will not be used."}
+{"level":"INFO","message":"[7:47:03.069 AM]: Easy Logging is disabled as no config has been found"}
+{"level":"INFO","message":"[7:47:03.072 AM]: Connection[id: e81f2395-a2f4-4bab-90f5-575a6f5c937c] - connected successfully after 13.985418000000209 milliseconds"}

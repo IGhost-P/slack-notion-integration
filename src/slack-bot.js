@@ -59,6 +59,16 @@ class SlackNotionBot {
     this.app.error((error) => {
       console.error("🔥 Slack Bot 오류:", error);
     });
+
+    // 질문 검색 전용 슬래시 명령어
+    this.app.command("/ask", async ({ command, ack, respond, client }) => {
+      await this.handleAskCommand(command, ack, respond, client);
+    });
+
+    // 요약 전용 슬래시 명령어
+    this.app.command("/summary", async ({ command, ack, respond, client }) => {
+      await this.handleSummaryCommand(command, ack, respond, client);
+    });
   }
 
   // 멘션 처리
@@ -177,6 +187,373 @@ class SlackNotionBot {
       await this.processMessageAndCreateNote(messageText, client, body.channel.id, null, body.user.id);
     } catch (error) {
       console.error("❌ 버튼 클릭 오류:", error);
+    }
+  }
+
+  // 스마트 질문 처리 메서드 (기존 클래스에 추가)
+  async processSmartMessage(userMessage, client, channel, messageTs, userId) {
+    try {
+      // 연결 확인
+      await this.ensureSnowflakeConnection();
+
+      // 사용자 정보
+      const userInfo = await this.getUserInfo(client, userId);
+
+      // 1. AI로 질문 분류
+      console.log("🤖 질문 분류 중...");
+      const classification = await this.snowflakeAI.classifyQuestion(userMessage);
+      console.log(`📋 분류 결과: ${classification.type}`);
+
+      // 2. 분류에 따른 처리
+      switch (classification.type) {
+        case "search":
+          await this.handleSearchRequest(userMessage, classification.keywords, client, channel, messageTs, userInfo);
+          break;
+
+        case "create":
+          await this.handleCreateRequest(userMessage, client, channel, messageTs, userInfo);
+          break;
+
+        case "summary":
+          await this.handleSummaryRequest(userMessage, client, channel, messageTs);
+          break;
+
+        case "general":
+        default:
+          await this.handleGeneralRequest(userMessage, client, channel, messageTs);
+          break;
+      }
+    } catch (error) {
+      console.error("❌ 스마트 처리 실패:", error);
+
+      const errorMessage = {
+        text: `🔥 처리 중 오류: ${error.message}`,
+        blocks: [
+          {
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: `🔥 *처리 중 오류가 발생했습니다*\n\`\`\`${error.message}\`\`\``
+            }
+          }
+        ]
+      };
+
+      if (messageTs) {
+        await this.updateMessage(client, channel, messageTs, errorMessage);
+      } else {
+        await client.chat.postMessage({ channel, ...errorMessage });
+      }
+    }
+  }
+
+  // 검색 요청 처리 (기존 클래스에 추가)
+  async handleSearchRequest(question, keywords, client, channel, messageTs, userInfo) {
+    try {
+      console.log("🔍 검색 요청 처리 중...");
+
+      // 1. Notion에서 관련 페이지 검색
+      const searchQuery = keywords?.join(" ") || question;
+      const relevantPages = await this.notionService.searchPagesByKeywords(searchQuery, 5);
+
+      if (relevantPages.length === 0) {
+        await this.sendNoResultsResponse(question, client, channel, messageTs);
+        return;
+      }
+
+      // 2. RAG 컨텍스트 생성
+      const ragContext = this.notionService.createRAGContext(relevantPages, 3000);
+      console.log(`📚 컨텍스트 생성: ${ragContext.totalLength}자`);
+
+      // 3. AI 답변 생성
+      const aiAnswer = await this.snowflakeAI.generateRAGAnswer(question, ragContext.context);
+
+      // 4. 응답 전송
+      await this.sendSearchResponse(question, aiAnswer, relevantPages, client, channel, messageTs, userInfo);
+    } catch (error) {
+      console.error("❌ 검색 처리 실패:", error);
+      throw error;
+    }
+  }
+
+  // 생성 요청 처리 (기존 processMessageAndCreateNote 활용)
+  async handleCreateRequest(request, client, channel, messageTs, userInfo) {
+    try {
+      console.log("📝 생성 요청 처리 중...");
+
+      // 기존 로직 활용
+      await this.processMessageAndCreateNote(request, client, channel, messageTs, userInfo.id);
+    } catch (error) {
+      console.error("❌ 생성 처리 실패:", error);
+      throw error;
+    }
+  }
+
+  // 요약 요청 처리 (기존 클래스에 추가)
+  async handleSummaryRequest(request, client, channel, messageTs) {
+    try {
+      console.log("📊 요약 요청 처리 중...");
+
+      // 최근 페이지들 검색
+      const recentPages = await this.notionService.searchPages("", 10);
+
+      if (recentPages.length === 0) {
+        const noDataMessage = {
+          text: "📊 요약할 데이터가 없습니다.",
+          blocks: [
+            {
+              type: "section",
+              text: {
+                type: "mrkdwn",
+                text: "📊 현재 접근 가능한 Notion 페이지가 없습니다. 페이지를 생성한 후 다시 시도해주세요."
+              }
+            }
+          ]
+        };
+
+        if (messageTs) {
+          await this.updateMessage(client, channel, messageTs, noDataMessage);
+        } else {
+          await client.chat.postMessage({ channel, ...noDataMessage });
+        }
+        return;
+      }
+
+      // 요약 프롬프트 생성
+      const summaryPrompt = `다음은 Notion 데이터베이스의 최근 페이지들입니다. 전체적으로 요약해주세요:
+
+페이지 목록:
+${recentPages.map((page) => `- ${page.title} (${page.lastEdited})`).join("\n")}
+
+사용자 요청: "${request}"
+
+한국어로 친근하고 구조적으로 요약해주세요.`;
+
+      const summaryResponse = await this.snowflakeAI.callOpenAI(summaryPrompt);
+
+      const summaryMessage = {
+        blocks: [
+          {
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: `📊 *데이터베이스 요약*`
+            }
+          },
+          {
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: summaryResponse
+            }
+          },
+          {
+            type: "section",
+            fields: [
+              {
+                type: "mrkdwn",
+                text: `*📄 총 페이지:*\n${recentPages.length}개`
+              },
+              {
+                type: "mrkdwn",
+                text: `*📅 최근 업데이트:*\n${recentPages[0]?.lastEdited || "N/A"}`
+              }
+            ]
+          }
+        ]
+      };
+
+      if (messageTs) {
+        await this.updateMessage(client, channel, messageTs, summaryMessage);
+      } else {
+        await client.chat.postMessage({ channel, ...summaryMessage });
+      }
+    } catch (error) {
+      console.error("❌ 요약 처리 실패:", error);
+      throw error;
+    }
+  }
+
+  // 일반 요청 처리 (기존 클래스에 추가)
+  async handleGeneralRequest(message, client, channel, messageTs) {
+    try {
+      console.log("💬 일반 대화 처리 중...");
+
+      const response = await this.snowflakeAI.callOpenAI(message);
+
+      const generalMessage = {
+        text: response,
+        blocks: [
+          {
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: response
+            }
+          }
+        ]
+      };
+
+      if (messageTs) {
+        await this.updateMessage(client, channel, messageTs, generalMessage);
+      } else {
+        await client.chat.postMessage({ channel, ...generalMessage });
+      }
+    } catch (error) {
+      console.error("❌ 일반 대화 처리 실패:", error);
+      throw error;
+    }
+  }
+
+  // /ask 명령어 처리 (기존 클래스에 추가)
+  async handleAskCommand(command, ack, respond, client) {
+    await ack();
+    console.log("🔍 질문 명령어:", command.text);
+
+    try {
+      if (!command.text.trim()) {
+        await respond({
+          text: "❓ 사용법: `/ask 질문내용`\n예: `/ask 프로젝트 현황이 어떻게 되나요?`",
+          response_type: "ephemeral"
+        });
+        return;
+      }
+
+      await respond({
+        text: "🔍 Notion에서 검색 중입니다...",
+        response_type: "ephemeral"
+      });
+
+      await this.ensureSnowflakeConnection();
+
+      // 강제로 검색으로 처리
+      const userInfo = await this.getUserInfo(client, command.user_id);
+      await this.handleSearchRequest(command.text, [], client, command.channel_id, null, userInfo);
+    } catch (error) {
+      console.error("❌ 질문 명령어 오류:", error);
+      await respond({
+        text: `🔥 검색 중 오류: ${error.message}`,
+        response_type: "ephemeral"
+      });
+    }
+  }
+
+  // /summary 명령어 처리 (기존 클래스에 추가)
+  async handleSummaryCommand(command, ack, respond, client) {
+    await ack();
+    console.log("📊 요약 명령어:", command.text);
+
+    try {
+      await respond({
+        text: "📊 데이터베이스 요약 생성 중입니다...",
+        response_type: "ephemeral"
+      });
+
+      await this.ensureSnowflakeConnection();
+
+      const query = command.text.trim() || "전체 요약해주세요";
+      await this.handleSummaryRequest(query, client, command.channel_id, null);
+    } catch (error) {
+      console.error("❌ 요약 명령어 오류:", error);
+      await respond({
+        text: `🔥 요약 중 오류: ${error.message}`,
+        response_type: "ephemeral"
+      });
+    }
+  }
+
+  // 검색 결과 응답 전송 (기존 클래스에 추가)
+  async sendSearchResponse(question, answer, sources, client, channel, messageTs, userInfo) {
+    const searchMessage = {
+      blocks: [
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: `🔍 *"${question}" 검색 결과*`
+          }
+        },
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: answer
+          }
+        }
+      ]
+    };
+
+    // 출처 정보 추가
+    if (sources && sources.length > 0) {
+      searchMessage.blocks.push({
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: "*📚 참고 자료:*"
+        }
+      });
+
+      sources.slice(0, 3).forEach((source, index) => {
+        searchMessage.blocks.push({
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: `${index + 1}. <${source.url}|${source.title}>`
+          }
+        });
+      });
+    }
+
+    // 컨텍스트 정보
+    searchMessage.blocks.push({
+      type: "context",
+      elements: [
+        {
+          type: "mrkdwn",
+          text: `🤖 AI 검색 완료 | 📄 ${sources.length}개 페이지 참조 | 👤 ${userInfo.real_name || userInfo.name}`
+        }
+      ]
+    });
+
+    if (messageTs) {
+      await this.updateMessage(client, channel, messageTs, searchMessage);
+    } else {
+      await client.chat.postMessage({ channel, ...searchMessage });
+    }
+  }
+
+  // 검색 결과 없음 응답 (기존 클래스에 추가)
+  async sendNoResultsResponse(question, client, channel, messageTs) {
+    const noResultsMessage = {
+      blocks: [
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: `🔍 *"${question}"에 대한 검색 결과*`
+          }
+        },
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: "죄송합니다. 관련된 정보를 Notion에서 찾을 수 없습니다."
+          }
+        },
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: "*💡 도움말:*\n• 다른 키워드로 검색해보세요\n• `/notion 내용`으로 새 페이지를 만들어보세요\n• `/summary`로 전체 데이터베이스를 확인해보세요"
+          }
+        }
+      ]
+    };
+
+    if (messageTs) {
+      await this.updateMessage(client, channel, messageTs, noResultsMessage);
+    } else {
+      await client.chat.postMessage({ channel, ...noResultsMessage });
     }
   }
 
