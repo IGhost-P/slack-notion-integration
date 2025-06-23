@@ -1,28 +1,56 @@
 {
   "name": "slack-notion-integration",
   "version": "1.0.0",
-  "description": "Nexon AI Assistant - Slack + Snowflake OpenAI + Notion Integration",
-  "main": "start.js",
+  "description": "AI-powered Slack to Notion integration with Snowflake backend",
+  "main": "index.js",
   "scripts": {
-    "start": "node start.js",
-    "dev": "nodemon start.js",
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "test": "npm run test:all",
+    "test:all": "npm run test:snowflake && npm run test:notion && npm run test:integration",
     "test:snowflake": "node tests/test-snowflake.js",
     "test:notion": "node tests/test-notion.js",
-    "test:all": "node tests/test-integration.js",
-    "setup:keys": "node scripts/setup-jwt-keys.js"
+    "test:integration": "node tests/test-integration.js",
+    "test:slack": "node tests/test-slack-components.js",
+    "setup": "node scripts/setup-check.js",
+    "build": "echo 'No build step required'",
+    "lint": "eslint src/ tests/ --fix",
+    "clean": "rm -rf node_modules package-lock.json && npm install"
   },
+  "keywords": [
+    "slack",
+    "notion",
+    "snowflake",
+    "ai",
+    "automation",
+    "integration",
+    "bot"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
   "dependencies": {
     "@notionhq/client": "^2.2.3",
-    "snowflake-sdk": "^1.9.0",
+    "@slack/bolt": "^3.22.0",
+    "crypto": "^1.0.1",
     "dotenv": "^16.3.1",
-    "winston": "^3.10.0",
+    "fs": "^0.0.1-security",
     "jsonwebtoken": "^9.0.2",
-    "crypto": "^1.0.1"
+    "snowflake-sdk": "^1.15.0"
   },
   "devDependencies": {
+    "eslint": "^8.48.0",
     "nodemon": "^3.0.1"
   },
   "engines": {
-    "node": ">=16.0.0"
-  }
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yourusername/slack-notion-integration.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/slack-notion-integration/issues"
+  },
+  "homepage": "https://github.com/yourusername/slack-notion-integration#readme"
 }
