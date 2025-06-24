@@ -50,6 +50,11 @@ class SlackNotionBot {
       await this.handleSlashCommand(command, ack, respond, client);
     });
 
+    // acdoc 커맨드 처리 (notion과 동일한 기능)
+    this.app.command("/acdoc", async ({ command, ack, respond, client }) => {
+      await this.handleSlashCommand(command, ack, respond, client);
+    });
+
     // 버튼 인터랙션 처리
     this.app.action("create_note", async ({ ack, body, client }) => {
       await this.handleButtonClick(ack, body, client);
@@ -140,7 +145,7 @@ class SlackNotionBot {
     try {
       if (!command.text.trim()) {
         await respond({
-          text: "📝 사용법: `/notion 저장할 내용을 입력하세요`\n예: `/notion 오늘 회의에서 논의된 새 기능 아이디어들`"
+          text: "📝 사용법: `/acdoc 저장할 내용을 입력하세요`\n예: `/acdoc 오늘 회의에서 논의된 새 기능 아이디어들`"
         });
         return;
       }
@@ -151,14 +156,14 @@ class SlackNotionBot {
         response_type: "ephemeral"
       });
 
-      // 메시지 처리
-      await this.processMessageAndCreateNote(
+      // 사용자 의도 파악 및 적절한 처리
+      await this.processSmartMessage(
         command.text,
         client,
         command.channel_id,
         null,
         command.user_id,
-        true // 슬래시 명령어 플래그
+        true // 슬래시 커맨드 플래그
       );
     } catch (error) {
       console.error("❌ 슬래시 명령어 오류:", error);
@@ -191,7 +196,7 @@ class SlackNotionBot {
   }
 
   // 스마트 질문 처리 메서드 (기존 클래스에 추가)
-  async processSmartMessage(userMessage, client, channel, messageTs, userId) {
+  async processSmartMessage(userMessage, client, channel, messageTs, userId, isSlashCommand = false) {
     try {
       // 연결 확인
       await this.ensureSnowflakeConnection();
@@ -207,20 +212,20 @@ class SlackNotionBot {
       // 2. 분류에 따른 처리
       switch (classification.type) {
         case "search":
-          await this.handleSearchRequest(userMessage, classification.keywords, client, channel, messageTs, userInfo);
+          await this.handleSearchRequest(userMessage, classification.keywords, client, channel, messageTs, userInfo, isSlashCommand);
           break;
 
         case "create":
-          await this.handleCreateRequest(userMessage, client, channel, messageTs, userInfo);
+          await this.handleCreateRequest(userMessage, client, channel, messageTs, userInfo, isSlashCommand);
           break;
 
         case "summary":
-          await this.handleSummaryRequest(userMessage, client, channel, messageTs);
+          await this.handleSummaryRequest(userMessage, client, channel, messageTs, userInfo, isSlashCommand);
           break;
 
         case "general":
         default:
-          await this.handleGeneralRequest(userMessage, client, channel, messageTs);
+          await this.handleGeneralRequest(userMessage, client, channel, messageTs, userInfo, isSlashCommand);
           break;
       }
     } catch (error) {
@@ -241,6 +246,8 @@ class SlackNotionBot {
 
       if (messageTs) {
         await this.updateMessage(client, channel, messageTs, errorMessage);
+      } else if (isSlashCommand) {
+        await client.chat.postMessage({ channel: userId, ...errorMessage });
       } else {
         await client.chat.postMessage({ channel, ...errorMessage });
       }
@@ -248,7 +255,7 @@ class SlackNotionBot {
   }
 
   // 검색 요청 처리 (기존 클래스에 추가)
-  async handleSearchRequest(question, keywords, client, channel, messageTs, userInfo) {
+  async handleSearchRequest(question, keywords, client, channel, messageTs, userInfo, isSlashCommand = false) {
     try {
       console.log("🔍 검색 요청 처리 중...");
 
@@ -257,7 +264,7 @@ class SlackNotionBot {
       const relevantPages = await this.notionService.searchPagesByKeywords(searchQuery, 5);
 
       if (relevantPages.length === 0) {
-        await this.sendNoResultsResponse(question, client, channel, messageTs);
+        await this.sendNoResultsResponse(question, client, channel, messageTs, userInfo, isSlashCommand);
         return;
       }
 
@@ -269,7 +276,7 @@ class SlackNotionBot {
       const aiAnswer = await this.snowflakeAI.generateRAGAnswer(question, ragContext.context);
 
       // 4. 응답 전송
-      await this.sendSearchResponse(question, aiAnswer, relevantPages, client, channel, messageTs, userInfo);
+      await this.sendSearchResponse(question, aiAnswer, relevantPages, client, channel, messageTs, userInfo, isSlashCommand);
     } catch (error) {
       console.error("❌ 검색 처리 실패:", error);
       throw error;
@@ -277,12 +284,12 @@ class SlackNotionBot {
   }
 
   // 생성 요청 처리 (기존 processMessageAndCreateNote 활용)
-  async handleCreateRequest(request, client, channel, messageTs, userInfo) {
+  async handleCreateRequest(request, client, channel, messageTs, userInfo, isSlashCommand = false) {
     try {
       console.log("📝 생성 요청 처리 중...");
 
       // 기존 로직 활용
-      await this.processMessageAndCreateNote(request, client, channel, messageTs, userInfo.id);
+      await this.processMessageAndCreateNote(request, client, channel, messageTs, userInfo.id, isSlashCommand);
     } catch (error) {
       console.error("❌ 생성 처리 실패:", error);
       throw error;
@@ -290,7 +297,7 @@ class SlackNotionBot {
   }
 
   // 요약 요청 처리 (기존 클래스에 추가)
-  async handleSummaryRequest(request, client, channel, messageTs) {
+  async handleSummaryRequest(request, client, channel, messageTs, userInfo, isSlashCommand = false) {
     try {
       console.log("📊 요약 요청 처리 중...");
 
@@ -313,6 +320,8 @@ class SlackNotionBot {
 
         if (messageTs) {
           await this.updateMessage(client, channel, messageTs, noDataMessage);
+        } else if (isSlashCommand) {
+          await client.chat.postMessage({ channel: userInfo.id, ...noDataMessage });
         } else {
           await client.chat.postMessage({ channel, ...noDataMessage });
         }
@@ -332,6 +341,7 @@ ${recentPages.map((page) => `- ${page.title} (${page.lastEdited})`).join("\n")}
       const summaryResponse = await this.snowflakeAI.callOpenAI(summaryPrompt);
 
       const summaryMessage = {
+        text: summaryResponse,
         blocks: [
           {
             type: "section",
@@ -365,6 +375,8 @@ ${recentPages.map((page) => `- ${page.title} (${page.lastEdited})`).join("\n")}
 
       if (messageTs) {
         await this.updateMessage(client, channel, messageTs, summaryMessage);
+      } else if (isSlashCommand) {
+        await client.chat.postMessage({ channel: userInfo.id, ...summaryMessage });
       } else {
         await client.chat.postMessage({ channel, ...summaryMessage });
       }
@@ -375,7 +387,7 @@ ${recentPages.map((page) => `- ${page.title} (${page.lastEdited})`).join("\n")}
   }
 
   // 일반 요청 처리 (기존 클래스에 추가)
-  async handleGeneralRequest(message, client, channel, messageTs) {
+  async handleGeneralRequest(message, client, channel, messageTs, userInfo, isSlashCommand = false) {
     try {
       console.log("💬 일반 대화 처리 중...");
 
@@ -396,6 +408,8 @@ ${recentPages.map((page) => `- ${page.title} (${page.lastEdited})`).join("\n")}
 
       if (messageTs) {
         await this.updateMessage(client, channel, messageTs, generalMessage);
+      } else if (isSlashCommand) {
+        await client.chat.postMessage({ channel: userInfo.id, ...generalMessage });
       } else {
         await client.chat.postMessage({ channel, ...generalMessage });
       }
@@ -451,8 +465,9 @@ ${recentPages.map((page) => `- ${page.title} (${page.lastEdited})`).join("\n")}
 
       await this.ensureSnowflakeConnection();
 
+      const userInfo = await this.getUserInfo(client, command.user_id);
       const query = command.text.trim() || "전체 요약해주세요";
-      await this.handleSummaryRequest(query, client, command.channel_id, null);
+      await this.handleSummaryRequest(query, client, command.channel_id, null, userInfo, true);
     } catch (error) {
       console.error("❌ 요약 명령어 오류:", error);
       await respond({
@@ -463,7 +478,7 @@ ${recentPages.map((page) => `- ${page.title} (${page.lastEdited})`).join("\n")}
   }
 
   // 검색 결과 응답 전송 (기존 클래스에 추가)
-  async sendSearchResponse(question, answer, sources, client, channel, messageTs, userInfo) {
+  async sendSearchResponse(question, answer, sources, client, channel, messageTs, userInfo, isSlashCommand = false) {
     const searchMessage = {
       blocks: [
         {
@@ -517,13 +532,15 @@ ${recentPages.map((page) => `- ${page.title} (${page.lastEdited})`).join("\n")}
 
     if (messageTs) {
       await this.updateMessage(client, channel, messageTs, searchMessage);
+    } else if (isSlashCommand) {
+      await client.chat.postMessage({ channel: userInfo.id, ...searchMessage });
     } else {
       await client.chat.postMessage({ channel, ...searchMessage });
     }
   }
 
   // 검색 결과 없음 응답 (기존 클래스에 추가)
-  async sendNoResultsResponse(question, client, channel, messageTs) {
+  async sendNoResultsResponse(question, client, channel, messageTs, userInfo, isSlashCommand = false) {
     const noResultsMessage = {
       blocks: [
         {
@@ -552,6 +569,8 @@ ${recentPages.map((page) => `- ${page.title} (${page.lastEdited})`).join("\n")}
 
     if (messageTs) {
       await this.updateMessage(client, channel, messageTs, noResultsMessage);
+    } else if (isSlashCommand) {
+      await client.chat.postMessage({ channel: userInfo.id, ...noResultsMessage });
     } else {
       await client.chat.postMessage({ channel, ...noResultsMessage });
     }
@@ -659,8 +678,9 @@ ${recentPages.map((page) => `- ${page.title} (${page.lastEdited})`).join("\n")}
       if (messageTs) {
         await this.updateMessage(client, channel, messageTs, successMessage);
       } else if (isSlashCommand) {
+        // 슬래시 커맨드의 경우 DM으로 결과 전송
         await client.chat.postMessage({
-          channel: channel,
+          channel: userId, // 사용자 ID로 DM 전송
           ...successMessage
         });
       } else {

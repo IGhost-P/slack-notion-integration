@@ -2,10 +2,10 @@
   "name": "slack-notion-integration",
   "version": "1.0.0",
   "description": "AI-powered Slack to Notion integration with Snowflake backend",
-  "main": "index.js",
+  "main": "src/app.js",
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js",
+    "start": "node src/app.js",
+    "dev": "nodemon src/app.js",
     "test": "npm run test:all",
     "test:all": "npm run test:snowflake && npm run test:notion && npm run test:integration",
     "test:snowflake": "node tests/test-snowflake.js",

@@ -1,7 +1,7 @@
 // index.js
 // Slack-Notion Integration Bot 메인 실행 파일
 
-const SlackNotionBot = require("./src/slack-bot");
+const SlackNotionBot = require("./slack-bot");
 
 // 환경 변수 확인
 function validateEnvironment() {

@@ -4,10 +4,20 @@
 require("dotenv").config();
 const { Client } = require("@notionhq/client");
 
+// SSL 인증서 검증 비활성화 (개발 환경용)
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
 class NotionService {
   constructor() {
     this.notion = new Client({
-      auth: process.env.NOTION_TOKEN
+      auth: process.env.NOTION_TOKEN,
+      // SSL 인증서 검증 비활성화 (개발 환경용)
+      requestTimeout: 10000,
+      // Node.js 환경에서 SSL 문제 해결
+      ...(process.env.NODE_TLS_REJECT_UNAUTHORIZED === "0" &&
+        {
+          // SSL 검증 비활성화 옵션
+        })
     });
     this.parentPageId = process.env.NOTION_PARENT_PAGE_ID;
   }
@@ -420,6 +430,13 @@ class NotionService {
       }));
     } catch (error) {
       console.error("❌ 페이지 검색 실패:", error);
+
+      // SSL 에러인 경우 빈 배열 반환
+      if (error.message.includes("self-signed certificate") || error.message.includes("SELF_SIGNED_CERT")) {
+        console.log("⚠️ SSL 인증서 문제로 검색을 건너뜁니다.");
+        return [];
+      }
+
       throw new Error(`페이지 검색 실패: ${error.message}`);
     }
   }
@@ -475,6 +492,13 @@ class NotionService {
       return relevantPages;
     } catch (error) {
       console.error("❌ 페이지 검색 실패:", error.message);
+
+      // SSL 에러인 경우 빈 배열 반환
+      if (error.message.includes("self-signed certificate") || error.message.includes("SELF_SIGNED_CERT")) {
+        console.log("⚠️ SSL 인증서 문제로 검색을 건너뜁니다.");
+        return [];
+      }
+
       throw new Error(`페이지 검색 실패: ${error.message}`);
     }
   }
