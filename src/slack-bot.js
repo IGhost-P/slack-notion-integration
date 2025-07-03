@@ -83,7 +83,7 @@ class SlackNotionBot {
     try {
       // 로딩 메시지 표시
       const loadingMessage = await say({
-        text: "🤔 생각 중입니다...",
+        text: "🤔 AI가 분석 중입니다...",
         thread_ts: event.ts
       });
 
@@ -109,8 +109,8 @@ class SlackNotionBot {
         return;
       }
 
-      // AI 처리 및 Notion 생성
-      await this.processMessageAndCreateNote(userMessage, client, event.channel, loadingMessage.ts, event.user);
+      // 스마트 메시지 처리 (스레드에서 응답)
+      await this.processSmartMessage(userMessage, client, event.channel, loadingMessage.ts, event.user, false);
     } catch (error) {
       console.error("❌ 멘션 처리 오류:", error);
       await say({
