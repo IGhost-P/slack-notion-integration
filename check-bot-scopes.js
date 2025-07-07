@@ -23,11 +23,11 @@ async function checkBotScopes() {
     try {
       const channels = await slack.conversations.list({
         types: "public_channel",
-        limit: 5
+        limit: 100
       });
       console.log(`✅ 채널 목록 조회 성공: ${channels.channels.length}개 채널 발견`);
 
-      channels.channels.slice(0, 3).forEach((channel) => {
+      channels.channels.slice(0, 100).forEach((channel) => {
         console.log(`   #${channel.name}`);
       });
     } catch (error) {

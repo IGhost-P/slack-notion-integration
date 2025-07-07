@@ -7,7 +7,7 @@ const querystring = require("querystring");
 
 async function exchangeCodeForToken() {
   // OAuth 콜백에서 받은 코드
-  const authCode = "9093153593142.9143817843828.69299fcea89be93d8dba20c69ef686af4d251d7ce2d15f1a01a13e8e68fc7e03";
+  const authCode = "9093153593142.9169830031057.9fe4079816164c616402b74a5d0e84c5194ecc239cfe9cfb7507de25c8a154c1";
   // https://example.com/callback?code=9093153593142.9143817843828.69299fcea89be93d8dba20c69ef686af4d251d7ce2d15f1a01a13e8e68fc7e03&state=
   // Slack 앱 정보 (Basic Information에서 확인)
   const clientId = "5550355901602.9087998066884";
