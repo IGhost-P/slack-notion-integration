@@ -20,9 +20,12 @@ class BulkSlackAnalyzer {
       batchSize: 5, // AI 분석 배치 크기
       delayBetweenBatches: 2000, // 배치간 대기시간 (ms)
       delayBetweenRequests: 1000, // 요청간 대기시간 (ms)
+      slackApiDelay: 1500, // Slack API 호출간 딜레이 (ms) - Rate Limit 회피
+      threadApiDelay: 2000, // 스레드 API 호출간 딜레이 (ms) - 더 보수적
       maxRetries: 3, // 실패시 재시도 횟수
       saveInterval: 10, // N개마다 중간 저장
-      resumeFromFile: true // 중단된 작업 이어서 하기
+      resumeFromFile: true, // 중단된 작업 이어서 하기
+      turboMode: false // 터보 모드 (Rate Limit 무시하고 빠르게 실행)
     };
 
     // 진행상황 추적
@@ -46,11 +49,15 @@ class BulkSlackAnalyzer {
 
     this.databaseId = null;
     this.summaryPageId = null;
+
+    // Rate Limit 대응
+    this.rateLimitHitCount = 0;
+    this.adaptiveDelay = false;
   }
 
-  // 1. 대량 메시지 수집 (페이지네이션 지원)
+  // 1. 대량 메시지 수집 (페이지네이션 지원 + 스레드 포함)
   async collectAllMessages(channelName, daysBack = 30) {
-    console.log("📱 대량 Slack 메시지 수집 시작");
+    console.log("📱 대량 Slack 메시지 수집 시작 (스레드 포함)");
     console.log("=".repeat(60));
     console.log(`📢 채널: #${channelName}`);
     console.log(`📅 수집 기간: 최근 ${daysBack}일`);
@@ -97,8 +104,8 @@ class BulkSlackAnalyzer {
 
         console.log(`   📝 현재까지 수집: ${allMessages.length}개 메시지`);
 
-        // API 제한 방지
-        await this.delay(500);
+        // API 제한 방지 (Rate Limit 회피)
+        await this.delay(this.config.slackApiDelay);
       } while (cursor);
 
       // 메시지 필터링
@@ -115,19 +122,115 @@ class BulkSlackAnalyzer {
         )
         .sort((a, b) => parseFloat(a.ts) - parseFloat(b.ts)); // 시간순 정렬
 
-      this.progress.totalMessages = filteredMessages.length;
+      console.log("\n🧵 스레드 내용 수집 중...");
+      console.log(`⚙️ Rate Limit 회피 설정: 스레드 API 딜레이 ${this.config.threadApiDelay}ms`);
+
+      // 스레드 포함 메시지 수집
+      const messagesWithThreads = [];
+      let threadStats = { threadsCount: 0, totalReplies: 0 };
+
+      for (let i = 0; i < filteredMessages.length; i++) {
+        const message = filteredMessages[i];
+        const messageData = {
+          original_message: message,
+          thread_replies: [],
+          combined_text: message.text // 분석용 결합 텍스트
+        };
+
+        // 스레드가 있는 메시지인지 확인
+        if (message.thread_ts && message.reply_count > 0) {
+          console.log(`   🧵 스레드 발견: ${message.reply_count}개 답글 수집 중... (${i + 1}/${filteredMessages.length})`);
+
+          try {
+            const threadReplies = await this.slack.conversations.replies({
+              channel: channel.id,
+              ts: message.thread_ts
+            });
+
+            // 원본 메시지를 제외한 답글만 저장
+            const replies = threadReplies.messages
+              .slice(1) // 첫 번째는 원본 메시지
+              .filter((reply) => reply.text && !reply.bot_id && reply.text.length > 5);
+
+            messageData.thread_replies = replies;
+            threadStats.threadsCount++;
+            threadStats.totalReplies += replies.length;
+
+            // 분석용 결합 텍스트 생성 (원본 + 스레드)
+            if (replies.length > 0) {
+              const threadTexts = replies.map((reply) => reply.text).join("\n");
+              messageData.combined_text = `${message.text}\n\n[스레드 답글]\n${threadTexts}`;
+            }
+
+            console.log(`     ✅ ${replies.length}개 답글 수집됨`);
+
+            // Rate Limit 회복 시 딜레이 감소
+            if (this.adaptiveDelay && this.rateLimitHitCount > 0) {
+              this.rateLimitHitCount = Math.max(0, this.rateLimitHitCount - 1);
+              if (this.rateLimitHitCount === 0) {
+                this.adaptiveDelay = false;
+                console.log(`     🔄 Rate Limit 회복됨 - 정상 속도로 복구`);
+              }
+            }
+          } catch (error) {
+            if (error.message.includes("rate limit") || error.message.includes("rate_limited")) {
+              this.rateLimitHitCount++;
+              this.adaptiveDelay = true;
+              const adaptiveDelayTime = this.config.threadApiDelay * (1 + this.rateLimitHitCount * 0.5);
+              console.log(`     ⚠️ Rate Limit 감지 (#${this.rateLimitHitCount}) - 딜레이 증가: ${adaptiveDelayTime}ms`);
+              await this.delay(adaptiveDelayTime);
+
+              // 재시도 로직
+              try {
+                console.log(`     🔄 스레드 재시도 중...`);
+                const threadReplies = await this.slack.conversations.replies({
+                  channel: channel.id,
+                  ts: message.thread_ts
+                });
+
+                const replies = threadReplies.messages.slice(1).filter((reply) => reply.text && !reply.bot_id && reply.text.length > 5);
+
+                messageData.thread_replies = replies;
+                threadStats.threadsCount++;
+                threadStats.totalReplies += replies.length;
+
+                if (replies.length > 0) {
+                  const threadTexts = replies.map((reply) => reply.text).join("\n");
+                  messageData.combined_text = `${message.text}\n\n[스레드 답글]\n${threadTexts}`;
+                }
+
+                console.log(`     ✅ 재시도 성공: ${replies.length}개 답글 수집됨`);
+              } catch (retryError) {
+                console.log(`     ❌ 재시도 실패: ${retryError.message}`);
+              }
+            } else {
+              console.log(`     ❌ 스레드 수집 실패: ${error.message}`);
+            }
+          }
+
+          // 스레드 수집 시 적응형 딜레이 (Rate Limit 회피)
+          const currentDelay = this.adaptiveDelay ? this.config.threadApiDelay * (1 + this.rateLimitHitCount * 0.3) : this.config.threadApiDelay;
+          await this.delay(currentDelay);
+        }
+
+        messagesWithThreads.push(messageData);
+      }
+
+      this.progress.totalMessages = messagesWithThreads.length;
 
       console.log("\n📊 수집 결과:");
       console.log(`   📄 총 페이지: ${pageCount}개`);
       console.log(`   📝 원본 메시지: ${allMessages.length}개`);
       console.log(`   ✅ 유효 메시지: ${filteredMessages.length}개`);
+      console.log(`   🧵 스레드 포함 메시지: ${messagesWithThreads.length}개`);
+      console.log(`   📊 스레드 통계: ${threadStats.threadsCount}개 스레드, ${threadStats.totalReplies}개 답글`);
       console.log(
         `   📅 기간: ${new Date(parseFloat(filteredMessages[0]?.ts) * 1000).toLocaleDateString("ko-KR")} ~ ${new Date(
           parseFloat(filteredMessages[filteredMessages.length - 1]?.ts) * 1000
         ).toLocaleDateString("ko-KR")}`
       );
 
-      return { channel, messages: filteredMessages };
+      return { channel, messages: messagesWithThreads };
     } catch (error) {
       console.error("❌ 메시지 수집 실패:", error.message);
       throw error;
@@ -175,16 +278,20 @@ class BulkSlackAnalyzer {
       console.log(`   📊 진행률: [${progressBar}] ${progressPercent}%`);
 
       // 배치 내 메시지 처리
-      for (const message of batch) {
+      for (const messageData of batch) {
         try {
-          console.log(`      🔍 분석 중: "${message.text.substring(0, 50)}..."`);
+          const displayText = messageData.original_message.text.substring(0, 50);
+          const threadInfo = messageData.thread_replies.length > 0 ? ` (+ ${messageData.thread_replies.length}개 답글)` : "";
+          console.log(`      🔍 분석 중: "${displayText}..."${threadInfo}`);
 
-          const analysis = await this.analyzeMessageWithRetry(message.text);
+          // 스레드 포함 분석
+          const analysis = await this.analyzeMessageWithRetry(messageData.combined_text, messageData);
 
           analyses.push({
-            message: message,
+            message: messageData.original_message,
+            messageData: messageData, // 스레드 정보 포함
             analysis: analysis,
-            timestamp: message.ts,
+            timestamp: messageData.original_message.ts,
             processed_at: new Date().toISOString()
           });
 
@@ -197,9 +304,9 @@ class BulkSlackAnalyzer {
 
           // 에러도 저장 (나중에 재처리용)
           this.results.errors.push({
-            message: message.text,
+            message: messageData.original_message.text,
             error: error.message,
-            timestamp: message.ts
+            timestamp: messageData.original_message.ts
           });
         }
 
@@ -263,10 +370,12 @@ class BulkSlackAnalyzer {
 
         for (const item of batch) {
           try {
-            await this.saveIssueToDatabase(this.databaseId, item.message, item.analysis);
+            await this.saveIssueToDatabase(this.databaseId, item.message, item.analysis, item.messageData);
             savedCount++;
 
-            console.log(`   ✅ 저장 성공 (${savedCount}/${analyses.length}): ${item.analysis.summary}`);
+            const threadInfo =
+              item.messageData && item.messageData.thread_replies.length > 0 ? ` (+ ${item.messageData.thread_replies.length}개 답글)` : "";
+            console.log(`   ✅ 저장 성공 (${savedCount}/${analyses.length}): ${item.analysis.summary}${threadInfo}`);
           } catch (error) {
             console.log(`   ❌ 저장 실패: ${error.message}`);
             this.progress.errors++;
@@ -309,24 +418,51 @@ class BulkSlackAnalyzer {
     }
   }
 
-  // AI 분석 (재시도 포함)
-  async analyzeMessageWithRetry(messageText, retries = 0) {
+  // AI 분석 (재시도 포함 - 스레드 지원)
+  async analyzeMessageWithRetry(messageText, messageData = null, retries = 0) {
     try {
-      const prompt = `다음 Slack 메시지를 LBD/SIREN 시스템 운영 관점에서 분석하고 분류해주세요:
+      let analysisText = messageText;
+      let threadInfo = "";
 
-메시지: "${messageText}"
+      // 스레드 정보가 있는 경우 추가 컨텍스트 제공
+      if (messageData && messageData.thread_replies && messageData.thread_replies.length > 0) {
+        threadInfo = `\n\n[스레드 답글 ${messageData.thread_replies.length}개]`;
+        threadInfo += `\n${messageData.thread_replies.map((reply, index) => `${index + 1}. ${reply.text}`).join("\n")}`;
+      }
+
+      const prompt = `다음 Slack 메시지와 스레드를 LBD/SIREN 시스템 운영 관점에서 분석하고 분류해주세요:
+
+원본 메시지: "${messageData ? messageData.original_message.text : messageText}"${threadInfo}
 
 다음 JSON 형태로 응답해주세요:
 {
-  "category": "incident_response|maintenance|monitoring|deployment|user_support|performance|security|documentation|meeting_discussion|feature_request|bug_report|etc",
+  "category": "incident_response|maintenance|monitoring|user_support|performance|security|documentation|feature_inquiry|bug_report|etc",
   "operation_type": "구체적인 운영 작업 유형",
   "urgency": "high|medium|low",
   "resource_estimate": "예상 소요 시간 (분 단위)",
   "keywords": ["핵심", "키워드들"],
-  "summary": "한 줄 요약"
+  "summary": "메시지와 스레드 전체 내용을 한 줄로 요약",
+  "thread_summary": "${messageData && messageData.thread_replies.length > 0 ? "스레드에서 논의된 주요 내용" : "N/A"}",
+  "has_thread": ${messageData && messageData.thread_replies.length > 0}
 }
 
-운영 작업이 아닌 일반 대화는 "etc" 카테고리로 분류하세요.`;
+분류 기준:
+- incident_response: 실제 시스템 장애, 에러, 긴급 대응이 필요한 상황
+- maintenance: 시스템 유지보수, 업데이트, 정기 점검
+- monitoring: 모니터링, 알림, 성능 체크  
+- user_support: 사용자 지원, 일반적인 문의 대응
+- performance: 성능 최적화, 속도 개선
+- security: 보안 관련 이슈, 취약점
+- documentation: 문서화, 가이드 작성
+- feature_inquiry: 기능 문의 (기능을 몰라서 발생한 정상적인 상황)
+- bug_report: 버그 제보 (실제 오류/버그가 발생한 상황)
+- etc: 위 카테고리에 해당하지 않는 일반 대화
+
+주의사항:
+- 사용자가 기능/사용법을 몰라서 문의하는 경우 → "feature_inquiry"
+- 실제 버그나 오류가 발생한 경우 → "bug_report"  
+- 회의/논의, 배포/릴리즈 관련 내용은 "etc"로 분류
+- 스레드가 있는 경우 스레드 내용도 함께 고려하여 분석`;
 
       const response = await this.snowflakeAI.callOpenAI(prompt);
       return JSON.parse(response);
@@ -334,7 +470,7 @@ class BulkSlackAnalyzer {
       if (retries < this.config.maxRetries) {
         console.log(`      🔄 재시도 ${retries + 1}/${this.config.maxRetries}: ${error.message}`);
         await this.delay(1000 * (retries + 1)); // 점진적 딜레이
-        return this.analyzeMessageWithRetry(messageText, retries + 1);
+        return this.analyzeMessageWithRetry(messageText, messageData, retries + 1);
       }
 
       // 최종 실패시 기본값 반환
@@ -344,7 +480,9 @@ class BulkSlackAnalyzer {
         urgency: "low",
         resource_estimate: "0",
         keywords: ["분석실패"],
-        summary: "AI 분석 실패"
+        summary: "AI 분석 실패",
+        thread_summary: "N/A",
+        has_thread: false
       };
     }
   }
@@ -359,14 +497,12 @@ class BulkSlackAnalyzer {
             { name: "🚨 인시던트 대응", color: "red" },
             { name: "🔧 시스템 유지보수", color: "orange" },
             { name: "👀 모니터링/알림", color: "yellow" },
-            { name: "🚀 배포/릴리즈", color: "green" },
             { name: "🤝 사용자 지원", color: "blue" },
             { name: "⚡ 성능 최적화", color: "purple" },
             { name: "🔒 보안 관련", color: "pink" },
             { name: "📚 문서화", color: "brown" },
-            { name: "💬 회의/논의", color: "gray" },
-            { name: "✨ 기능 요청", color: "default" },
-            { name: "🐛 버그 리포트", color: "red" },
+            { name: "❓ 기능 문의", color: "green" },
+            { name: "🐛 버그 제보", color: "red" },
             { name: "📋 기타", color: "gray" }
           ]
         }
@@ -390,12 +526,22 @@ class BulkSlackAnalyzer {
           ]
         }
       },
+      "스레드 여부": {
+        select: {
+          options: [
+            { name: "🧵 스레드 있음", color: "blue" },
+            { name: "📝 단일 메시지", color: "gray" }
+          ]
+        }
+      },
+      "답글 수": { number: { format: "number" } },
       작성자: { rich_text: {} },
       "예상 소요시간": { number: { format: "number" } },
       발생일시: { date: {} },
       키워드: { multi_select: { options: [] } },
       "원본 메시지": { rich_text: {} },
-      "AI 요약": { rich_text: {} }
+      "스레드 요약": { rich_text: {} },
+      "AI 종합 분석": { rich_text: {} }
     };
 
     return await this.notionService.notion.databases.create({
@@ -424,8 +570,8 @@ class BulkSlackAnalyzer {
     });
   }
 
-  // 이슈를 데이터베이스에 저장
-  async saveIssueToDatabase(databaseId, message, analysis) {
+  // 이슈를 데이터베이스에 저장 (스레드 정보 포함)
+  async saveIssueToDatabase(databaseId, message, analysis, messageData = null) {
     // 사용자 정보 조회
     let userName = "Unknown User";
     try {
@@ -434,6 +580,10 @@ class BulkSlackAnalyzer {
     } catch (error) {
       // 사용자 정보 조회 실패시 기본값 사용
     }
+
+    // 스레드 정보 확인
+    const hasThread = messageData && messageData.thread_replies && messageData.thread_replies.length > 0;
+    const threadCount = hasThread ? messageData.thread_replies.length : 0;
 
     return await this.notionService.notion.pages.create({
       parent: { database_id: databaseId },
@@ -450,6 +600,12 @@ class BulkSlackAnalyzer {
         상태: {
           select: { name: "🆕 신규" }
         },
+        "스레드 여부": {
+          select: { name: hasThread ? "🧵 스레드 있음" : "📝 단일 메시지" }
+        },
+        "답글 수": {
+          number: threadCount
+        },
         작성자: {
           rich_text: [{ type: "text", text: { content: userName } }]
         },
@@ -462,14 +618,17 @@ class BulkSlackAnalyzer {
         "원본 메시지": {
           rich_text: [{ type: "text", text: { content: message.text } }]
         },
-        "AI 요약": {
+        "스레드 요약": {
+          rich_text: [{ type: "text", text: { content: analysis.thread_summary || "스레드 없음" } }]
+        },
+        "AI 종합 분석": {
           rich_text: [{ type: "text", text: { content: analysis.summary } }]
         }
       }
     });
   }
 
-  // 통계 생성
+  // 통계 생성 (스레드 통계 포함)
   generateStatistics(analyses) {
     const stats = {
       categoryFrequency: {},
@@ -479,6 +638,13 @@ class BulkSlackAnalyzer {
       topKeywords: {},
       operationTypes: {},
       dailyOperations: {},
+      threadStatistics: {
+        totalThreads: 0,
+        totalReplies: 0,
+        averageRepliesPerThread: 0,
+        messagesWithThreads: 0,
+        threadPercentage: 0
+      },
       timeRange: {
         start: null,
         end: null
@@ -488,7 +654,7 @@ class BulkSlackAnalyzer {
     let totalResourceTime = 0;
 
     analyses.forEach((item) => {
-      const { analysis, message } = item;
+      const { analysis, message, messageData } = item;
 
       // 카테고리별 분포
       stats.categoryFrequency[analysis.category] = (stats.categoryFrequency[analysis.category] || 0) + 1;
@@ -511,10 +677,24 @@ class BulkSlackAnalyzer {
       // 일별 분포
       const date = new Date(parseFloat(message.ts) * 1000).toDateString();
       stats.dailyOperations[date] = (stats.dailyOperations[date] || 0) + 1;
+
+      // 스레드 통계
+      if (messageData && messageData.thread_replies && messageData.thread_replies.length > 0) {
+        stats.threadStatistics.totalThreads++;
+        stats.threadStatistics.totalReplies += messageData.thread_replies.length;
+        stats.threadStatistics.messagesWithThreads++;
+      }
     });
 
     stats.totalResourceTime = totalResourceTime;
     stats.averageResourceTime = analyses.length > 0 ? Math.round(totalResourceTime / analyses.length) : 0;
+
+    // 스레드 통계 계산
+    if (stats.threadStatistics.totalThreads > 0) {
+      stats.threadStatistics.averageRepliesPerThread = Math.round(stats.threadStatistics.totalReplies / stats.threadStatistics.totalThreads);
+    }
+    stats.threadStatistics.threadPercentage =
+      analyses.length > 0 ? Math.round((stats.threadStatistics.messagesWithThreads / analyses.length) * 100) : 0;
 
     // 시간 범위
     if (analyses.length > 0) {
@@ -540,6 +720,12 @@ class BulkSlackAnalyzer {
 - **총 이슈**: ${this.progress.savedToNotion}개
 - **분석 완료**: ${new Date().toLocaleDateString("ko-KR")}
 
+## 🔍 새로운 분류 체계
+- **❓ 기능 문의**: 기능을 몰라서 발생한 정상적인 상황 (교육/가이드 필요)
+- **🐛 버그 제보**: 실제 오류/버그가 발생한 상황 (개발팀 대응 필요)
+- **🚨 인시던트 대응**: 시스템 장애, 긴급 대응 필요
+- **기타 운영 이슈**: 유지보수, 모니터링, 성능, 보안, 문서화 등
+
 ## 📈 카테고리별 분포
 
 ${sortedCategories
@@ -561,6 +747,12 @@ ${sortedCategories
 - **평균 작업시간**: ${stats.averageResourceTime}분/건
 - **일평균 운영업무**: ${Math.round(this.progress.savedToNotion / Object.keys(stats.dailyOperations).length)}건/일
 
+## 🧵 스레드 활동 분석
+- **스레드 보유 메시지**: ${stats.threadStatistics.messagesWithThreads}개 (${stats.threadStatistics.threadPercentage}%)
+- **총 스레드 수**: ${stats.threadStatistics.totalThreads}개
+- **총 답글 수**: ${stats.threadStatistics.totalReplies}개
+- **스레드당 평균 답글**: ${stats.threadStatistics.averageRepliesPerThread}개
+
 ## 🔑 주요 키워드 TOP 15
 ${Object.entries(stats.topKeywords)
   .sort(([, a], [, b]) => b - a)
@@ -576,12 +768,19 @@ ${Object.entries(stats.topKeywords)
 ## 🎯 핵심 인사이트
 1. **가장 빈번한 운영 업무**: ${sortedCategories[0] ? this.getCategoryDisplayName(sortedCategories[0][0]) : "N/A"}
 2. **가장 시간 소모적인 작업**: ${this.getMaxResourceCategory(stats)}
-3. **개선 우선순위**: 고빈도 + 고비용 작업부터 자동화 검토
+3. **스레드 활동 특성**: ${stats.threadStatistics.threadPercentage}% 메시지가 스레드 논의 포함 (평균 ${
+      stats.threadStatistics.averageRepliesPerThread
+    }개 답글)
+4. **문의 vs 버그 분포**: 기능 문의 ${stats.categoryFrequency.feature_inquiry || 0}개 vs 버그 제보 ${stats.categoryFrequency.bug_report || 0}개
+5. **개선 우선순위**: 고빈도 + 고비용 작업부터 자동화 검토
 
 ## 📋 권장 액션 아이템
 - [ ] 상위 3개 카테고리 프로세스 표준화
 - [ ] 반복 작업 자동화 도구 도입 검토  
 - [ ] 긴급도 높은 작업 대응 체계 구축
+- [ ] **기능 문의** 빈도 높은 기능 대상 사용자 가이드/교육 강화
+- [ ] **버그 제보** 패턴 분석 및 개발팀 피드백 체계 구축
+- [ ] 스레드 활동이 활발한 이슈 심화 분석
 - [ ] 월간 운영 현황 모니터링 시스템 구성
 
 ---
@@ -607,6 +806,26 @@ ${Object.entries(stats.topKeywords)
     return await this.notionService.createPage(summaryContent);
   }
 
+  // 터보 모드 설정 (Rate Limit 감수하고 빠르게 실행)
+  enableTurboMode() {
+    this.config.turboMode = true;
+    this.config.slackApiDelay = 500; // 1.5초 → 0.5초
+    this.config.threadApiDelay = 800; // 2초 → 0.8초
+    console.log("🚀 터보 모드 활성화! (Rate Limit 위험 감수)");
+    console.log(`   📡 Slack API 딜레이: ${this.config.slackApiDelay}ms`);
+    console.log(`   🧵 스레드 API 딜레이: ${this.config.threadApiDelay}ms`);
+  }
+
+  // 안전 모드 설정 (Rate Limit 회피 우선)
+  enableSafeMode() {
+    this.config.turboMode = false;
+    this.config.slackApiDelay = 2000; // 2초
+    this.config.threadApiDelay = 3000; // 3초
+    console.log("🛡️ 안전 모드 활성화! (Rate Limit 완전 회피)");
+    console.log(`   📡 Slack API 딜레이: ${this.config.slackApiDelay}ms`);
+    console.log(`   🧵 스레드 API 딜레이: ${this.config.threadApiDelay}ms`);
+  }
+
   // 유틸리티 메서드들
   async delay(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -617,14 +836,12 @@ ${Object.entries(stats.topKeywords)
       incident_response: "🚨 인시던트 대응",
       maintenance: "🔧 시스템 유지보수",
       monitoring: "👀 모니터링/알림",
-      deployment: "🚀 배포/릴리즈",
       user_support: "🤝 사용자 지원",
       performance: "⚡ 성능 최적화",
       security: "🔒 보안 관련",
       documentation: "📚 문서화",
-      meeting_discussion: "💬 회의/논의",
-      feature_request: "✨ 기능 요청",
-      bug_report: "🐛 버그 리포트",
+      feature_inquiry: "❓ 기능 문의",
+      bug_report: "🐛 버그 제보",
       etc: "📋 기타"
     };
     return names[category] || "📋 기타";
@@ -667,6 +884,14 @@ ${Object.entries(stats.topKeywords)
     console.log(`📅 분석 기간: 최근 ${daysBack}일`);
     console.log(`⚙️ 배치 크기: ${this.config.batchSize}개`);
     console.log(`⏱️ 시작 시간: ${new Date().toLocaleString("ko-KR")}`);
+    console.log("");
+
+    // Rate Limit 회피 설정 표시
+    console.log("🔧 Rate Limit 회피 설정:");
+    console.log(`   📡 Slack API 딜레이: ${this.config.slackApiDelay}ms`);
+    console.log(`   🧵 스레드 API 딜레이: ${this.config.threadApiDelay}ms`);
+    console.log(`   🔄 적응형 딜레이: ${this.adaptiveDelay ? "활성화" : "비활성화"}`);
+    console.log(`   🎯 실행 모드: ${this.config.turboMode ? "🚀 터보 모드" : "⚖️ 기본 모드"}`);
     console.log("");
 
     const startTime = new Date();
@@ -745,8 +970,18 @@ async function startBulkAnalysis() {
   const analyzer = new BulkSlackAnalyzer();
 
   try {
-    // 최근 30일간 안티치트인사이트팀-help 채널 전체 분석
-    const result = await analyzer.runBulkAnalysis("안티치트인사이트팀-help", 30);
+    // 실행 모드 선택
+    console.log("🎯 실행 모드 선택:");
+    console.log("1. 기본 모드: 균형잡힌 속도 (추천)");
+    console.log("2. 터보 모드: 빠른 속도 (Rate Limit 위험)");
+    console.log("3. 안전 모드: 느린 속도 (Rate Limit 완전 회피)");
+
+    // 기본 모드로 실행 (원하는 모드로 변경 가능)
+    // analyzer.enableTurboMode(); // 터보 모드 활성화
+    // analyzer.enableSafeMode();  // 안전 모드 활성화
+
+    // 최근 10일간 안티치트인사이트팀-help 채널 전체 분석
+    const result = await analyzer.runBulkAnalysis("안티치트인사이트팀-help", 10);
 
     console.log("\n✅ 대량 분석 시스템 완료!");
     console.log("🎯 이제 실제 운영 이슈 관리가 가능합니다!");
