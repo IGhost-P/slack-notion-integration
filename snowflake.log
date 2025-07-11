@@ -232,3 +232,113 @@
 {"level":"INFO","message":"[5:08:15.371 PM]: No config file path found. Client config will not be used."}
 {"level":"INFO","message":"[5:08:15.372 PM]: Easy Logging is disabled as no config has been found"}
 {"level":"INFO","message":"[5:08:15.375 PM]: Connection[id: 196e56fe-2d12-472b-a914-23bbed67e194] - connected successfully after 12.470319000000018 milliseconds"}
+{"level":"INFO","message":"[10:21:25.605 AM]: Creating new connection object"}
+{"level":"INFO","message":"[10:21:26.088 AM]: Creating Connection[id: df26b462-1f8b-486f-b42d-7b523fa0470a] with host: NEXON-DS.snowflakecomputing.com, account: NEXON-DS, accessUrl: https://NEXON-DS.snowflakecomputing.com, user: SWYANG@NEXON.CO.KR, password is not provided, role: EXPERT_USER, database: NXLOG, schema: PUBLIC, warehouse: DEFAULT_WAREHOUSE, region: undefined, authenticator: SNOWFLAKE_JWT, ocsp mode: FAIL_OPEN, os: darwin, os version: 22.1.0"}
+{"level":"INFO","message":"[10:21:26.088 AM]: Connection[id: df26b462-1f8b-486f-b42d-7b523fa0470a] additional details: passcode in password is provided, passcode is not provided, private key is provided, application: undefined, client name: snowflake-sdk, client version: 1.15.0, retry timeout: 300, private key path: undefined, private key pass is not provided, client store temporary credential: false, browser response timeout: 120000"}
+{"level":"INFO","message":"[10:21:26.089 AM]: Connection[id: df26b462-1f8b-486f-b42d-7b523fa0470a] - connection object created successfully."}
+{"level":"INFO","message":"[10:21:26.089 AM]: Connection[id: df26b462-1f8b-486f-b42d-7b523fa0470a] - connecting. Associated Snowflake domain: GLOBAL"}
+{"level":"INFO","message":"[10:21:26.094 AM]: Connection[id: df26b462-1f8b-486f-b42d-7b523fa0470a] - authentication successful using: SNOWFLAKE_JWT"}
+{"level":"INFO","message":"[10:21:26.095 AM]: Trying to initialize Easy Logging"}
+{"level":"INFO","message":"[10:21:26.098 AM]: No client config detected."}
+{"level":"INFO","message":"[10:21:26.098 AM]: No config file path found. Client config will not be used."}
+{"level":"INFO","message":"[10:21:26.099 AM]: Easy Logging is disabled as no config has been found"}
+{"level":"INFO","message":"[10:21:26.102 AM]: Connection[id: df26b462-1f8b-486f-b42d-7b523fa0470a] - connected successfully after 12.888122000033036 milliseconds"}
+{"level":"INFO","message":"[2:20:22.156 PM]: Creating new connection object"}
+{"level":"INFO","message":"[2:20:22.644 PM]: Creating Connection[id: 39c1a958-72ce-4283-8112-256669f4e32a] with host: NEXON-DS.snowflakecomputing.com, account: NEXON-DS, accessUrl: https://NEXON-DS.snowflakecomputing.com, user: SWYANG@NEXON.CO.KR, password is not provided, role: EXPERT_USER, database: NXLOG, schema: PUBLIC, warehouse: DEFAULT_WAREHOUSE, region: undefined, authenticator: SNOWFLAKE_JWT, ocsp mode: FAIL_OPEN, os: darwin, os version: 22.1.0"}
+{"level":"INFO","message":"[2:20:22.645 PM]: Connection[id: 39c1a958-72ce-4283-8112-256669f4e32a] additional details: passcode in password is provided, passcode is not provided, private key is provided, application: undefined, client name: snowflake-sdk, client version: 1.15.0, retry timeout: 300, private key path: undefined, private key pass is not provided, client store temporary credential: false, browser response timeout: 120000"}
+{"level":"INFO","message":"[2:20:22.645 PM]: Connection[id: 39c1a958-72ce-4283-8112-256669f4e32a] - connection object created successfully."}
+{"level":"INFO","message":"[2:20:22.645 PM]: Connection[id: 39c1a958-72ce-4283-8112-256669f4e32a] - connecting. Associated Snowflake domain: GLOBAL"}
+{"level":"INFO","message":"[2:20:22.650 PM]: Connection[id: 39c1a958-72ce-4283-8112-256669f4e32a] - authentication successful using: SNOWFLAKE_JWT"}
+{"level":"INFO","message":"[2:20:22.650 PM]: Trying to initialize Easy Logging"}
+{"level":"INFO","message":"[2:20:22.652 PM]: No client config detected."}
+{"level":"INFO","message":"[2:20:22.653 PM]: No config file path found. Client config will not be used."}
+{"level":"INFO","message":"[2:20:22.653 PM]: Easy Logging is disabled as no config has been found"}
+{"level":"INFO","message":"[2:20:22.656 PM]: Connection[id: 39c1a958-72ce-4283-8112-256669f4e32a] - connected successfully after 10.434500999981537 milliseconds"}
+{"level":"INFO","message":"[3:11:21.126 PM]: Creating new connection object"}
+{"level":"INFO","message":"[3:11:26.838 PM]: Creating Connection[id: 8602152c-593e-4eef-88fc-030bd7569350] with host: NEXON-DS.snowflakecomputing.com, account: NEXON-DS, accessUrl: https://NEXON-DS.snowflakecomputing.com, user: SWYANG@NEXON.CO.KR, password is not provided, role: EXPERT_USER, database: NXLOG, schema: PUBLIC, warehouse: DEFAULT_WAREHOUSE, region: undefined, authenticator: SNOWFLAKE_JWT, ocsp mode: FAIL_OPEN, os: darwin, os version: 22.1.0"}
+{"level":"INFO","message":"[3:11:26.838 PM]: Connection[id: 8602152c-593e-4eef-88fc-030bd7569350] additional details: passcode in password is provided, passcode is not provided, private key is provided, application: undefined, client name: snowflake-sdk, client version: 1.15.0, retry timeout: 300, private key path: undefined, private key pass is not provided, client store temporary credential: false, browser response timeout: 120000"}
+{"level":"INFO","message":"[3:11:26.839 PM]: Connection[id: 8602152c-593e-4eef-88fc-030bd7569350] - connection object created successfully."}
+{"level":"INFO","message":"[3:11:26.839 PM]: Connection[id: 8602152c-593e-4eef-88fc-030bd7569350] - connecting. Associated Snowflake domain: GLOBAL"}
+{"level":"INFO","message":"[3:11:26.845 PM]: Connection[id: 8602152c-593e-4eef-88fc-030bd7569350] - authentication successful using: SNOWFLAKE_JWT"}
+{"level":"INFO","message":"[3:11:26.845 PM]: Trying to initialize Easy Logging"}
+{"level":"INFO","message":"[3:11:26.848 PM]: No client config detected."}
+{"level":"INFO","message":"[3:11:26.849 PM]: No config file path found. Client config will not be used."}
+{"level":"INFO","message":"[3:11:26.849 PM]: Easy Logging is disabled as no config has been found"}
+{"level":"INFO","message":"[3:11:26.852 PM]: Connection[id: 8602152c-593e-4eef-88fc-030bd7569350] - connected successfully after 12.507448000018485 milliseconds"}
+{"level":"INFO","message":"[3:38:23.808 PM]: Creating new connection object"}
+{"level":"INFO","message":"[3:38:24.836 PM]: Creating Connection[id: 5f5c6c92-fec8-4c92-b52f-d131c0d621dc] with host: NEXON-DS.snowflakecomputing.com, account: NEXON-DS, accessUrl: https://NEXON-DS.snowflakecomputing.com, user: SWYANG@NEXON.CO.KR, password is not provided, role: EXPERT_USER, database: NXLOG, schema: PUBLIC, warehouse: DEFAULT_WAREHOUSE, region: undefined, authenticator: SNOWFLAKE_JWT, ocsp mode: FAIL_OPEN, os: darwin, os version: 22.1.0"}
+{"level":"INFO","message":"[3:38:24.837 PM]: Connection[id: 5f5c6c92-fec8-4c92-b52f-d131c0d621dc] additional details: passcode in password is provided, passcode is not provided, private key is provided, application: undefined, client name: snowflake-sdk, client version: 1.15.0, retry timeout: 300, private key path: undefined, private key pass is not provided, client store temporary credential: false, browser response timeout: 120000"}
+{"level":"INFO","message":"[3:38:24.837 PM]: Connection[id: 5f5c6c92-fec8-4c92-b52f-d131c0d621dc] - connection object created successfully."}
+{"level":"INFO","message":"[3:38:24.838 PM]: Connection[id: 5f5c6c92-fec8-4c92-b52f-d131c0d621dc] - connecting. Associated Snowflake domain: GLOBAL"}
+{"level":"INFO","message":"[3:38:24.844 PM]: Connection[id: 5f5c6c92-fec8-4c92-b52f-d131c0d621dc] - authentication successful using: SNOWFLAKE_JWT"}
+{"level":"INFO","message":"[3:38:24.844 PM]: Trying to initialize Easy Logging"}
+{"level":"INFO","message":"[3:38:24.848 PM]: No client config detected."}
+{"level":"INFO","message":"[3:38:24.849 PM]: No config file path found. Client config will not be used."}
+{"level":"INFO","message":"[3:38:24.849 PM]: Easy Logging is disabled as no config has been found"}
+{"level":"INFO","message":"[3:38:24.852 PM]: Connection[id: 5f5c6c92-fec8-4c92-b52f-d131c0d621dc] - connected successfully after 14.190926000010222 milliseconds"}
+{"level":"INFO","message":"[3:57:58.459 PM]: Creating new connection object"}
+{"level":"INFO","message":"[3:57:59.464 PM]: Creating Connection[id: 3481f8a3-0db7-4575-a39f-4660a3f56685] with host: NEXON-DS.snowflakecomputing.com, account: NEXON-DS, accessUrl: https://NEXON-DS.snowflakecomputing.com, user: SWYANG@NEXON.CO.KR, password is not provided, role: EXPERT_USER, database: NXLOG, schema: PUBLIC, warehouse: DEFAULT_WAREHOUSE, region: undefined, authenticator: SNOWFLAKE_JWT, ocsp mode: FAIL_OPEN, os: darwin, os version: 22.1.0"}
+{"level":"INFO","message":"[3:57:59.465 PM]: Connection[id: 3481f8a3-0db7-4575-a39f-4660a3f56685] additional details: passcode in password is provided, passcode is not provided, private key is provided, application: undefined, client name: snowflake-sdk, client version: 1.15.0, retry timeout: 300, private key path: undefined, private key pass is not provided, client store temporary credential: false, browser response timeout: 120000"}
+{"level":"INFO","message":"[3:57:59.465 PM]: Connection[id: 3481f8a3-0db7-4575-a39f-4660a3f56685] - connection object created successfully."}
+{"level":"INFO","message":"[3:57:59.465 PM]: Connection[id: 3481f8a3-0db7-4575-a39f-4660a3f56685] - connecting. Associated Snowflake domain: GLOBAL"}
+{"level":"INFO","message":"[3:57:59.470 PM]: Connection[id: 3481f8a3-0db7-4575-a39f-4660a3f56685] - authentication successful using: SNOWFLAKE_JWT"}
+{"level":"INFO","message":"[3:57:59.471 PM]: Trying to initialize Easy Logging"}
+{"level":"INFO","message":"[3:57:59.472 PM]: No client config detected."}
+{"level":"INFO","message":"[3:57:59.473 PM]: No config file path found. Client config will not be used."}
+{"level":"INFO","message":"[3:57:59.473 PM]: Easy Logging is disabled as no config has been found"}
+{"level":"INFO","message":"[3:57:59.476 PM]: Connection[id: 3481f8a3-0db7-4575-a39f-4660a3f56685] - connected successfully after 10.30273400000442 milliseconds"}
+{"level":"INFO","message":"[4:05:25.318 PM]: Creating new connection object"}
+{"level":"INFO","message":"[4:05:26.974 PM]: Creating Connection[id: 572ef9e9-ffb1-44fa-9760-c995f7e51f55] with host: NEXON-DS.snowflakecomputing.com, account: NEXON-DS, accessUrl: https://NEXON-DS.snowflakecomputing.com, user: SWYANG@NEXON.CO.KR, password is not provided, role: EXPERT_USER, database: NXLOG, schema: PUBLIC, warehouse: DEFAULT_WAREHOUSE, region: undefined, authenticator: SNOWFLAKE_JWT, ocsp mode: FAIL_OPEN, os: darwin, os version: 22.1.0"}
+{"level":"INFO","message":"[4:05:26.975 PM]: Connection[id: 572ef9e9-ffb1-44fa-9760-c995f7e51f55] additional details: passcode in password is provided, passcode is not provided, private key is provided, application: undefined, client name: snowflake-sdk, client version: 1.15.0, retry timeout: 300, private key path: undefined, private key pass is not provided, client store temporary credential: false, browser response timeout: 120000"}
+{"level":"INFO","message":"[4:05:26.975 PM]: Connection[id: 572ef9e9-ffb1-44fa-9760-c995f7e51f55] - connection object created successfully."}
+{"level":"INFO","message":"[4:05:26.976 PM]: Connection[id: 572ef9e9-ffb1-44fa-9760-c995f7e51f55] - connecting. Associated Snowflake domain: GLOBAL"}
+{"level":"INFO","message":"[4:05:26.985 PM]: Connection[id: 572ef9e9-ffb1-44fa-9760-c995f7e51f55] - authentication successful using: SNOWFLAKE_JWT"}
+{"level":"INFO","message":"[4:05:26.985 PM]: Trying to initialize Easy Logging"}
+{"level":"INFO","message":"[4:05:26.989 PM]: No client config detected."}
+{"level":"INFO","message":"[4:05:26.990 PM]: No config file path found. Client config will not be used."}
+{"level":"INFO","message":"[4:05:26.990 PM]: Easy Logging is disabled as no config has been found"}
+{"level":"INFO","message":"[4:05:26.995 PM]: Connection[id: 572ef9e9-ffb1-44fa-9760-c995f7e51f55] - connected successfully after 18.753499999991618 milliseconds"}
+{"level":"INFO","message":"[4:11:51.078 PM]: Creating new connection object"}
+{"level":"INFO","message":"[4:11:52.505 PM]: Creating Connection[id: f06ee7d8-76b5-4a7f-b470-0e3e8f71621f] with host: NEXON-DS.snowflakecomputing.com, account: NEXON-DS, accessUrl: https://NEXON-DS.snowflakecomputing.com, user: SWYANG@NEXON.CO.KR, password is not provided, role: EXPERT_USER, database: NXLOG, schema: PUBLIC, warehouse: DEFAULT_WAREHOUSE, region: undefined, authenticator: SNOWFLAKE_JWT, ocsp mode: FAIL_OPEN, os: darwin, os version: 22.1.0"}
+{"level":"INFO","message":"[4:11:52.506 PM]: Connection[id: f06ee7d8-76b5-4a7f-b470-0e3e8f71621f] additional details: passcode in password is provided, passcode is not provided, private key is provided, application: undefined, client name: snowflake-sdk, client version: 1.15.0, retry timeout: 300, private key path: undefined, private key pass is not provided, client store temporary credential: false, browser response timeout: 120000"}
+{"level":"INFO","message":"[4:11:52.506 PM]: Connection[id: f06ee7d8-76b5-4a7f-b470-0e3e8f71621f] - connection object created successfully."}
+{"level":"INFO","message":"[4:11:52.506 PM]: Connection[id: f06ee7d8-76b5-4a7f-b470-0e3e8f71621f] - connecting. Associated Snowflake domain: GLOBAL"}
+{"level":"INFO","message":"[4:11:52.512 PM]: Connection[id: f06ee7d8-76b5-4a7f-b470-0e3e8f71621f] - authentication successful using: SNOWFLAKE_JWT"}
+{"level":"INFO","message":"[4:11:52.512 PM]: Trying to initialize Easy Logging"}
+{"level":"INFO","message":"[4:11:52.515 PM]: No client config detected."}
+{"level":"INFO","message":"[4:11:52.516 PM]: No config file path found. Client config will not be used."}
+{"level":"INFO","message":"[4:11:52.516 PM]: Easy Logging is disabled as no config has been found"}
+{"level":"INFO","message":"[4:11:52.519 PM]: Connection[id: f06ee7d8-76b5-4a7f-b470-0e3e8f71621f] - connected successfully after 12.908190999994986 milliseconds"}
+{"level":"INFO","message":"[4:22:52.551 PM]: Creating new connection object"}
+{"level":"INFO","message":"[4:22:53.463 PM]: Creating Connection[id: 9c6cc27f-8a3a-40a1-bf16-064a81abb1c9] with host: NEXON-DS.snowflakecomputing.com, account: NEXON-DS, accessUrl: https://NEXON-DS.snowflakecomputing.com, user: SWYANG@NEXON.CO.KR, password is not provided, role: EXPERT_USER, database: NXLOG, schema: PUBLIC, warehouse: DEFAULT_WAREHOUSE, region: undefined, authenticator: SNOWFLAKE_JWT, ocsp mode: FAIL_OPEN, os: darwin, os version: 22.1.0"}
+{"level":"INFO","message":"[4:22:53.463 PM]: Connection[id: 9c6cc27f-8a3a-40a1-bf16-064a81abb1c9] additional details: passcode in password is provided, passcode is not provided, private key is provided, application: undefined, client name: snowflake-sdk, client version: 1.15.0, retry timeout: 300, private key path: undefined, private key pass is not provided, client store temporary credential: false, browser response timeout: 120000"}
+{"level":"INFO","message":"[4:22:53.464 PM]: Connection[id: 9c6cc27f-8a3a-40a1-bf16-064a81abb1c9] - connection object created successfully."}
+{"level":"INFO","message":"[4:22:53.464 PM]: Connection[id: 9c6cc27f-8a3a-40a1-bf16-064a81abb1c9] - connecting. Associated Snowflake domain: GLOBAL"}
+{"level":"INFO","message":"[4:22:53.469 PM]: Connection[id: 9c6cc27f-8a3a-40a1-bf16-064a81abb1c9] - authentication successful using: SNOWFLAKE_JWT"}
+{"level":"INFO","message":"[4:22:53.469 PM]: Trying to initialize Easy Logging"}
+{"level":"INFO","message":"[4:22:53.472 PM]: No client config detected."}
+{"level":"INFO","message":"[4:22:53.472 PM]: No config file path found. Client config will not be used."}
+{"level":"INFO","message":"[4:22:53.472 PM]: Easy Logging is disabled as no config has been found"}
+{"level":"INFO","message":"[4:22:53.475 PM]: Connection[id: 9c6cc27f-8a3a-40a1-bf16-064a81abb1c9] - connected successfully after 10.542716000003566 milliseconds"}
+{"level":"INFO","message":"[4:32:14.990 PM]: Creating new connection object"}
+{"level":"INFO","message":"[4:32:16.263 PM]: Creating Connection[id: 601d2f2f-1405-41ca-bb57-f1592c59f910] with host: NEXON-DS.snowflakecomputing.com, account: NEXON-DS, accessUrl: https://NEXON-DS.snowflakecomputing.com, user: SWYANG@NEXON.CO.KR, password is not provided, role: EXPERT_USER, database: NXLOG, schema: PUBLIC, warehouse: DEFAULT_WAREHOUSE, region: undefined, authenticator: SNOWFLAKE_JWT, ocsp mode: FAIL_OPEN, os: darwin, os version: 22.1.0"}
+{"level":"INFO","message":"[4:32:16.264 PM]: Connection[id: 601d2f2f-1405-41ca-bb57-f1592c59f910] additional details: passcode in password is provided, passcode is not provided, private key is provided, application: undefined, client name: snowflake-sdk, client version: 1.15.0, retry timeout: 300, private key path: undefined, private key pass is not provided, client store temporary credential: false, browser response timeout: 120000"}
+{"level":"INFO","message":"[4:32:16.264 PM]: Connection[id: 601d2f2f-1405-41ca-bb57-f1592c59f910] - connection object created successfully."}
+{"level":"INFO","message":"[4:32:16.265 PM]: Connection[id: 601d2f2f-1405-41ca-bb57-f1592c59f910] - connecting. Associated Snowflake domain: GLOBAL"}
+{"level":"INFO","message":"[4:32:16.273 PM]: Connection[id: 601d2f2f-1405-41ca-bb57-f1592c59f910] - authentication successful using: SNOWFLAKE_JWT"}
+{"level":"INFO","message":"[4:32:16.273 PM]: Trying to initialize Easy Logging"}
+{"level":"INFO","message":"[4:32:16.277 PM]: No client config detected."}
+{"level":"INFO","message":"[4:32:16.278 PM]: No config file path found. Client config will not be used."}
+{"level":"INFO","message":"[4:32:16.278 PM]: Easy Logging is disabled as no config has been found"}
+{"level":"INFO","message":"[4:32:16.282 PM]: Connection[id: 601d2f2f-1405-41ca-bb57-f1592c59f910] - connected successfully after 16.951437999996415 milliseconds"}
+{"level":"INFO","message":"[4:44:55.539 PM]: Creating new connection object"}
+{"level":"INFO","message":"[4:44:56.763 PM]: Creating Connection[id: 7addb929-63fa-4eef-9a02-bf9943bd4651] with host: NEXON-DS.snowflakecomputing.com, account: NEXON-DS, accessUrl: https://NEXON-DS.snowflakecomputing.com, user: SWYANG@NEXON.CO.KR, password is not provided, role: EXPERT_USER, database: NXLOG, schema: PUBLIC, warehouse: DEFAULT_WAREHOUSE, region: undefined, authenticator: SNOWFLAKE_JWT, ocsp mode: FAIL_OPEN, os: darwin, os version: 22.1.0"}
+{"level":"INFO","message":"[4:44:56.764 PM]: Connection[id: 7addb929-63fa-4eef-9a02-bf9943bd4651] additional details: passcode in password is provided, passcode is not provided, private key is provided, application: undefined, client name: snowflake-sdk, client version: 1.15.0, retry timeout: 300, private key path: undefined, private key pass is not provided, client store temporary credential: false, browser response timeout: 120000"}
+{"level":"INFO","message":"[4:44:56.764 PM]: Connection[id: 7addb929-63fa-4eef-9a02-bf9943bd4651] - connection object created successfully."}
+{"level":"INFO","message":"[4:44:56.765 PM]: Connection[id: 7addb929-63fa-4eef-9a02-bf9943bd4651] - connecting. Associated Snowflake domain: GLOBAL"}
+{"level":"INFO","message":"[4:44:56.770 PM]: Connection[id: 7addb929-63fa-4eef-9a02-bf9943bd4651] - authentication successful using: SNOWFLAKE_JWT"}
+{"level":"INFO","message":"[4:44:56.770 PM]: Trying to initialize Easy Logging"}
+{"level":"INFO","message":"[4:44:56.773 PM]: No client config detected."}
+{"level":"INFO","message":"[4:44:56.774 PM]: No config file path found. Client config will not be used."}
+{"level":"INFO","message":"[4:44:56.774 PM]: Easy Logging is disabled as no config has been found"}
+{"level":"INFO","message":"[4:44:56.777 PM]: Connection[id: 7addb929-63fa-4eef-9a02-bf9943bd4651] - connected successfully after 12.197723000019323 milliseconds"}

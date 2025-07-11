@@ -53,6 +53,9 @@ class BulkSlackAnalyzer {
     // Rate Limit 대응
     this.rateLimitHitCount = 0;
     this.adaptiveDelay = false;
+
+    // 사용자 정보 캐시 (API 호출 최소화)
+    this.userCache = new Map();
   }
 
   // 1. 대량 메시지 수집 (페이지네이션 지원 + 스레드 포함)
@@ -76,6 +79,9 @@ class BulkSlackAnalyzer {
       }
 
       console.log(`✅ 채널 발견: #${channel.name} (ID: ${channel.id})`);
+
+      // 채널 ID 저장 (스레드 링크 생성용)
+      this.currentChannelId = channel.id;
 
       // 날짜 범위 설정
       const oldest = Math.floor((Date.now() - daysBack * 24 * 60 * 60 * 1000) / 1000);
@@ -147,18 +153,31 @@ class BulkSlackAnalyzer {
               ts: message.thread_ts
             });
 
-            // 원본 메시지를 제외한 답글만 저장
+            // 원본 메시지를 제외한 답글만 저장 (사용자 정보 포함)
             const replies = threadReplies.messages
               .slice(1) // 첫 번째는 원본 메시지
               .filter((reply) => reply.text && !reply.bot_id && reply.text.length > 5);
 
-            messageData.thread_replies = replies;
+            // 각 답글에 사용자 이름 추가 (더 안전하게 처리)
+            const repliesWithUsers = [];
+            for (const reply of replies) {
+              const userDisplay = await this.getUserDisplayName(reply.user);
+
+              repliesWithUsers.push({
+                text: reply.text || "",
+                user: reply.user || "unknown",
+                user_name: userDisplay,
+                ts: reply.ts
+              });
+            }
+
+            messageData.thread_replies = repliesWithUsers;
             threadStats.threadsCount++;
             threadStats.totalReplies += replies.length;
 
-            // 분석용 결합 텍스트 생성 (원본 + 스레드)
-            if (replies.length > 0) {
-              const threadTexts = replies.map((reply) => reply.text).join("\n");
+            // 분석용 결합 텍스트 생성 (원본 + 스레드, 사용자 정보 포함)
+            if (repliesWithUsers.length > 0) {
+              const threadTexts = repliesWithUsers.map((reply) => `[${reply.user_name}] ${reply.text}`).join("\n");
               messageData.combined_text = `${message.text}\n\n[스레드 답글]\n${threadTexts}`;
             }
 
@@ -190,12 +209,25 @@ class BulkSlackAnalyzer {
 
                 const replies = threadReplies.messages.slice(1).filter((reply) => reply.text && !reply.bot_id && reply.text.length > 5);
 
-                messageData.thread_replies = replies;
+                // 재시도 시에도 사용자 정보 포함
+                const repliesWithUsers = [];
+                for (const reply of replies) {
+                  const userDisplay = await this.getUserDisplayName(reply.user);
+
+                  repliesWithUsers.push({
+                    text: reply.text,
+                    user: reply.user,
+                    user_name: userDisplay,
+                    ts: reply.ts
+                  });
+                }
+
+                messageData.thread_replies = repliesWithUsers;
                 threadStats.threadsCount++;
                 threadStats.totalReplies += replies.length;
 
-                if (replies.length > 0) {
-                  const threadTexts = replies.map((reply) => reply.text).join("\n");
+                if (repliesWithUsers.length > 0) {
+                  const threadTexts = repliesWithUsers.map((reply) => `[${reply.user_name}] ${reply.text}`).join("\n");
                   messageData.combined_text = `${message.text}\n\n[스레드 답글]\n${threadTexts}`;
                 }
 
@@ -297,7 +329,7 @@ class BulkSlackAnalyzer {
 
           this.progress.analyzedMessages++;
 
-          console.log(`      ✅ ${this.getCategoryDisplayName(analysis.category)} | ${analysis.urgency} | ${analysis.resource_estimate}분`);
+          console.log(`      ✅ ${analysis.category} | ${analysis.issue_type} | ${analysis.is_resolved ? "해결됨" : "미해결"}`);
         } catch (error) {
           console.log(`      ❌ 분석 실패: ${error.message}`);
           this.progress.errors++;
@@ -352,8 +384,8 @@ class BulkSlackAnalyzer {
     console.log(`📊 저장할 분석 결과: ${analyses.length}개`);
 
     try {
-      // 1. 운영 이슈 데이터베이스 생성
-      console.log("🔄 운영 이슈 데이터베이스 생성 중...");
+      // 1. RAG 데이터베이스 생성
+      console.log("🔄 RAG 데이터베이스 생성 중...");
       const database = await this.createOperationDatabase(channelName, analyses.length);
       this.databaseId = database.id;
 
@@ -370,7 +402,7 @@ class BulkSlackAnalyzer {
 
         for (const item of batch) {
           try {
-            await this.saveIssueToDatabase(this.databaseId, item.message, item.analysis, item.messageData);
+            await this.saveIssueToDatabase(this.databaseId, item.message, item.analysis, item.messageData, this.currentChannelId);
             savedCount++;
 
             const threadInfo =
@@ -395,20 +427,48 @@ class BulkSlackAnalyzer {
 
       this.progress.savedToNotion = savedCount;
 
-      // 3. 통계 생성 및 대시보드 생성
-      console.log("\n📊 통계 분석 및 대시보드 생성 중...");
+      // 3. 통계 생성 (대시보드 생성 제외)
+      console.log("\n📊 통계 분석 중...");
       const statistics = this.generateStatistics(analyses);
-      const summary = await this.createDashboardSummary(channelName, statistics, database);
 
       console.log("\n🎉 대량 저장 완료!");
       console.log(`   📊 저장 성공: ${savedCount}개`);
       console.log(`   📈 저장 성공률: ${Math.round((savedCount / analyses.length) * 100)}%`);
       console.log(`   🔗 데이터베이스: ${database.url}`);
-      console.log(`   📊 대시보드: ${summary.url}`);
+
+      // 간단한 통계 출력
+      console.log("\n📈 분석 결과 요약:");
+      console.log(
+        `   📁 주요 카테고리: ${
+          Object.entries(statistics.categoryFrequency || {})
+            .sort(([, a], [, b]) => b - a)
+            .slice(0, 3)
+            .map(([category, count]) => `${this.getCategoryDisplayName(category)}(${count}건)`)
+            .join(", ") || "없음"
+        }`
+      );
+      console.log(
+        `   🔍 주요 이슈 타입: ${
+          Object.entries(statistics.issuePatterns.topIssueTypes || {})
+            .sort(([, a], [, b]) => b - a)
+            .slice(0, 3)
+            .map(([type, count]) => `${type}(${count}건)`)
+            .join(", ") || "없음"
+        }`
+      );
+      console.log(
+        `   🖥️ 주요 시스템: ${
+          Object.entries(statistics.issuePatterns.systemComponents || {})
+            .sort(([, a], [, b]) => b - a)
+            .slice(0, 5)
+            .map(([component, count]) => `${component}(${count}건)`)
+            .join(", ") || "없음"
+        }`
+      );
+      console.log(`   🧵 스레드 활동: ${statistics.threadStatistics.threadPercentage}%`);
 
       return {
         database: database,
-        summary: summary,
         statistics: statistics,
         savedCount: savedCount
       };
@@ -424,48 +484,82 @@ class BulkSlackAnalyzer {
       let analysisText = messageText;
       let threadInfo = "";
 
-      // 스레드 정보가 있는 경우 추가 컨텍스트 제공
+      // 스레드 정보가 있는 경우 추가 컨텍스트 제공 (안전하게 처리)
       if (messageData && messageData.thread_replies && messageData.thread_replies.length > 0) {
-        threadInfo = `\n\n[스레드 답글 ${messageData.thread_replies.length}개]`;
-        threadInfo += `\n${messageData.thread_replies.map((reply, index) => `${index + 1}. ${reply.text}`).join("\n")}`;
+        const validReplies = messageData.thread_replies.filter((reply) => reply.text && reply.user_name);
+        if (validReplies.length > 0) {
+          threadInfo = `\n\n[스레드 답글 ${validReplies.length}개]`;
+          threadInfo += `\n${validReplies.map((reply, index) => `${index + 1}. [${reply.user_name}] ${reply.text}`).join("\n")}`;
+        }
       }
 
-      const prompt = `다음 Slack 메시지와 스레드를 LBD/SIREN 시스템 운영 관점에서 분석하고 분류해주세요:
+      // 스레드 정보 포함한 상세 프롬프트 (순수 JSON 응답 강제)
+      const prompt = `다음 Slack 메시지와 스레드를 분석하여 RAG용 데이터를 생성해주세요:
 
 원본 메시지: "${messageData ? messageData.original_message.text : messageText}"${threadInfo}
 
-다음 JSON 형태로 응답해주세요:
+**중요: 코드블록 없이 순수 JSON 객체만 응답해주세요. 추가 설명이나 텍스트 없이 JSON만 출력하세요.**
+
 {
-  "category": "incident_response|maintenance|monitoring|user_support|performance|security|documentation|feature_inquiry|bug_report|etc",
-  "operation_type": "구체적인 운영 작업 유형",
-  "urgency": "high|medium|low",
-  "resource_estimate": "예상 소요 시간 (분 단위)",
-  "keywords": ["핵심", "키워드들"],
-  "summary": "메시지와 스레드 전체 내용을 한 줄로 요약",
-  "thread_summary": "${messageData && messageData.thread_replies.length > 0 ? "스레드에서 논의된 주요 내용" : "N/A"}",
-  "has_thread": ${messageData && messageData.thread_replies.length > 0}
+  "category": "bug_report",
+  "issue_type": "구체적인 이슈 타입 (예: SF 적재 지연, API 응답 지연, KMDF 재처리 문제 등)",
+  "system_components": ["실제 언급된 시스템/서비스명들"],
+  "problem_cause": "이슈의 원인 (없으면 '미확인')",
+  "solution_method": "해결 방법 (없으면 '해결방법 없음')",
+  "issue_reporter": "이슈 제기자 이름",
+  "issue_resolver": "이슈 해결자 이름 (없으면 '미확인')",
+  "summary": "한 줄 요약"
 }
 
-분류 기준:
-- incident_response: 실제 시스템 장애, 에러, 긴급 대응이 필요한 상황
-- maintenance: 시스템 유지보수, 업데이트, 정기 점검
-- monitoring: 모니터링, 알림, 성능 체크  
-- user_support: 사용자 지원, 일반적인 문의 대응
-- performance: 성능 최적화, 속도 개선
-- security: 보안 관련 이슈, 취약점
-- documentation: 문서화, 가이드 작성
-- feature_inquiry: 기능 문의 (기능을 몰라서 발생한 정상적인 상황)
-- bug_report: 버그 제보 (실제 오류/버그가 발생한 상황)
-- etc: 위 카테고리에 해당하지 않는 일반 대화
+분석 기준:
+1. **카테고리**: 다음 중 하나로 분류
+   - bug_report: 버그, 오류, 장애 관련
+   - feature_inquiry: 기능 사용법, 문의
+   - maintenance: 시스템 유지보수, 업데이트
+   - notification: 공지사항, 안내
+   - discussion: 일반 토론, 의견 교환
+   - other: 기타
+2. **시스템 컴포넌트**: SF, Snowflake, KMDF, API, Database, Redis, Kafka, S3, AWS, Airflow, Jenkins 등 기술 용어 추출
+3. **사람 이름**: 스레드의 [사용자명] 형태에서 추출하여 제기자와 해결자 식별
+4. **원인과 해결방법**: 스레드에서 원인 분석 및 해결 과정 추출`;
 
-주의사항:
-- 사용자가 기능/사용법을 몰라서 문의하는 경우 → "feature_inquiry"
-- 실제 버그나 오류가 발생한 경우 → "bug_report"  
-- 회의/논의, 배포/릴리즈 관련 내용은 "etc"로 분류
-- 스레드가 있는 경우 스레드 내용도 함께 고려하여 분석`;
-
+      console.log(`      🤖 AI 분석 요청 중...`);
       const response = await this.snowflakeAI.callOpenAI(prompt);
-      return JSON.parse(response);
+
+      // JSON 파싱 안전하게 처리 (코드블록 제거)
+      let result;
+      try {
+        // AI가 ```json ``` 코드블록으로 감쌀 수 있으므로 제거
+        let cleanResponse = response.trim();
+
+        // 코드블록 제거
+        if (cleanResponse.startsWith("```json")) {
+          cleanResponse = cleanResponse.replace(/^```json\s*/, "").replace(/\s*```$/, "");
+        } else if (cleanResponse.startsWith("```")) {
+          cleanResponse = cleanResponse.replace(/^```\s*/, "").replace(/\s*```$/, "");
+        }
+
+        // 추가 설명 텍스트 제거 (JSON 객체만 추출)
+        const jsonMatch = cleanResponse.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          cleanResponse = jsonMatch[0];
+        }
+
+        result = JSON.parse(cleanResponse);
+      } catch (parseError) {
+        console.log(`      ❌ JSON 파싱 실패: ${parseError.message}`);
+        console.log(`      📝 AI 원본 응답: ${response.substring(0, 400)}...`);
+        throw new Error(`AI 응답 파싱 실패: ${parseError.message}`);
+      }
+
+      // 성공 로그
+      console.log(
+        `      ✅ AI 분석 성공: ${result.issue_type || "타입없음"} | 시스템: ${result.system_components?.join(",") || "없음"} | 해결자: ${
+          result.issue_resolver || "미확인"
+        }`
+      );
+
+      return result;
     } catch (error) {
       if (retries < this.config.maxRetries) {
         console.log(`      🔄 재시도 ${retries + 1}/${this.config.maxRetries}: ${error.message}`);
@@ -473,16 +567,19 @@ class BulkSlackAnalyzer {
         return this.analyzeMessageWithRetry(messageText, messageData, retries + 1);
       }
 
-      // 최종 실패시 기본값 반환
+      // 최종 실패시 기본값 반환 (원본 메시지 기반)
+      console.log(`❌ AI 분석 최종 실패: ${error.message}`);
+      const fallbackSummary = messageText.substring(0, 100).replace(/\n/g, " ") + (messageText.length > 100 ? "..." : "");
+
       return {
-        category: "etc",
-        operation_type: "분석 실패",
-        urgency: "low",
-        resource_estimate: "0",
-        keywords: ["분석실패"],
-        summary: "AI 분석 실패",
-        thread_summary: "N/A",
-        has_thread: false
+        category: "other",
+        issue_type: "분석 실패",
+        system_components: [],
+        problem_cause: `AI 분석 실패: ${error.message}`,
+        solution_method: "분석 재시도 필요",
+        issue_reporter: "미확인",
+        issue_resolver: "미확인",
+        summary: fallbackSummary
       };
     }
   }
@@ -490,58 +587,29 @@ class BulkSlackAnalyzer {
   // 운영 데이터베이스 생성
   async createOperationDatabase(channelName, messageCount) {
     const databaseProperties = {
-      "이슈 제목": { title: {} },
+      제목: { title: {} },
       카테고리: {
         select: {
           options: [
-            { name: "🚨 인시던트 대응", color: "red" },
-            { name: "🔧 시스템 유지보수", color: "orange" },
-            { name: "👀 모니터링/알림", color: "yellow" },
-            { name: "🤝 사용자 지원", color: "blue" },
-            { name: "⚡ 성능 최적화", color: "purple" },
-            { name: "🔒 보안 관련", color: "pink" },
-            { name: "📚 문서화", color: "brown" },
-            { name: "❓ 기능 문의", color: "green" },
             { name: "🐛 버그 제보", color: "red" },
+            { name: "❓ 기능 문의", color: "blue" },
+            { name: "🔧 시스템 유지보수", color: "orange" },
+            { name: "📢 공지사항", color: "green" },
+            { name: "💬 토론", color: "yellow" },
             { name: "📋 기타", color: "gray" }
           ]
         }
       },
-      우선순위: {
-        select: {
-          options: [
-            { name: "🔴 높음", color: "red" },
-            { name: "🟡 보통", color: "yellow" },
-            { name: "🟢 낮음", color: "green" }
-          ]
-        }
-      },
-      상태: {
-        select: {
-          options: [
-            { name: "🆕 신규", color: "blue" },
-            { name: "🔄 진행중", color: "yellow" },
-            { name: "✅ 완료", color: "green" },
-            { name: "❌ 취소", color: "red" }
-          ]
-        }
-      },
-      "스레드 여부": {
-        select: {
-          options: [
-            { name: "🧵 스레드 있음", color: "blue" },
-            { name: "📝 단일 메시지", color: "gray" }
-          ]
-        }
-      },
-      "답글 수": { number: { format: "number" } },
-      작성자: { rich_text: {} },
-      "예상 소요시간": { number: { format: "number" } },
+      "이슈 타입": { rich_text: {} },
+      "시스템 컴포넌트": { multi_select: { options: [] } },
+      원인: { rich_text: {} },
+      "해결 방법": { rich_text: {} },
+      "이슈 제기자": { rich_text: {} },
+      "이슈 해결자": { rich_text: {} },
       발생일시: { date: {} },
-      키워드: { multi_select: { options: [] } },
+      "스레드 링크": { url: {} },
       "원본 메시지": { rich_text: {} },
-      "스레드 요약": { rich_text: {} },
-      "AI 종합 분석": { rich_text: {} }
+      "스레드 내용": { rich_text: {} }
     };
 
     return await this.notionService.notion.databases.create({
@@ -552,7 +620,7 @@ class BulkSlackAnalyzer {
         {
           type: "text",
           text: {
-            content: `📊 ${channelName} 운영 이슈 데이터베이스 (${messageCount}개 분석)`
+            content: `🤖 ${channelName} RAG 데이터베이스 (${messageCount}개 분석)`
           }
         }
       ],
@@ -561,7 +629,7 @@ class BulkSlackAnalyzer {
         {
           type: "text",
           text: {
-            content: `Slack #${channelName} 채널의 ${messageCount}개 메시지를 AI로 분석한 운영 이슈 데이터베이스입니다. 생성일: ${new Date().toLocaleDateString(
+            content: `Slack #${channelName} 채널의 ${messageCount}개 메시지를 AI가 참조할 수 있는 RAG 데이터베이스입니다. 생성일: ${new Date().toLocaleDateString(
               "ko-KR"
             )}`
           }
@@ -570,78 +638,106 @@ class BulkSlackAnalyzer {
     });
   }
 
-  // 이슈를 데이터베이스에 저장 (스레드 정보 포함)
-  async saveIssueToDatabase(databaseId, message, analysis, messageData = null) {
-    // 사용자 정보 조회
-    let userName = "Unknown User";
-    try {
-      const userInfo = await this.slack.users.info({ user: message.user });
-      userName = userInfo.user.real_name || userInfo.user.name;
-    } catch (error) {
-      // 사용자 정보 조회 실패시 기본값 사용
-    }
+  // 이슈를 데이터베이스에 저장 (안전한 데이터 처리)
+  async saveIssueToDatabase(databaseId, message, analysis, messageData = null, channelId = null) {
+    // 사용자 정보 조회 (안전하게)
+    const userName = await this.getUserDisplayName(message.user);
 
     // 스레드 정보 확인
     const hasThread = messageData && messageData.thread_replies && messageData.thread_replies.length > 0;
-    const threadCount = hasThread ? messageData.thread_replies.length : 0;
+
+    // 스레드 링크 생성
+    const threadLink = hasThread && channelId ? this.generateSlackThreadLink(channelId, message.ts) : null;
+
+    // 스레드 내용 결합 (안전하게 처리)
+    let threadContent = "스레드 없음";
+    if (hasThread) {
+      const validReplies = messageData.thread_replies.filter((reply) => reply.text && reply.user_name);
+      if (validReplies.length > 0) {
+        threadContent = validReplies.map((reply) => `[${reply.user_name}] ${reply.text}`).join("\n\n");
+      }
+    }
+
+    // 카테고리 매핑
+    const categoryMap = {
+      bug_report: "🐛 버그 제보",
+      feature_inquiry: "❓ 기능 문의",
+      maintenance: "🔧 시스템 유지보수",
+      notification: "📢 공지사항",
+      discussion: "💬 토론",
+      other: "📋 기타"
+    };
+
+    // 안전한 값 처리 (AI 분석 결과 정규화)
+    const safeAnalysis = {
+      summary: analysis.summary || "제목 없음",
+      category: analysis.category || "other", // AI가 분석한 카테고리 사용
+      issue_type: analysis.issue_type || "미분류",
+      system_components: Array.isArray(analysis.system_components) ? analysis.system_components.filter((comp) => comp && comp.trim()) : [],
+      problem_cause: analysis.problem_cause || "미확인",
+      solution_method: analysis.solution_method || "해결방법 없음",
+      issue_reporter: analysis.issue_reporter || userName,
+      issue_resolver: analysis.issue_resolver || "미확인"
+    };
 
     return await this.notionService.notion.pages.create({
       parent: { database_id: databaseId },
       properties: {
-        "이슈 제목": {
-          title: [{ type: "text", text: { content: analysis.summary } }]
+        제목: {
+          title: [{ type: "text", text: { content: safeAnalysis.summary } }]
         },
         카테고리: {
-          select: { name: this.getCategoryDisplayName(analysis.category) }
+          select: { name: categoryMap[safeAnalysis.category] || "📋 기타" }
         },
-        우선순위: {
-          select: { name: this.getUrgencyDisplayName(analysis.urgency) }
+        "이슈 타입": {
+          rich_text: [{ type: "text", text: { content: safeAnalysis.issue_type } }]
         },
-        상태: {
-          select: { name: "🆕 신규" }
+        "시스템 컴포넌트": {
+          multi_select: safeAnalysis.system_components.map((comp) => ({ name: comp }))
         },
-        "스레드 여부": {
-          select: { name: hasThread ? "🧵 스레드 있음" : "📝 단일 메시지" }
+        원인: {
+          rich_text: [{ type: "text", text: { content: safeAnalysis.problem_cause } }]
         },
-        "답글 수": {
-          number: threadCount
+        "해결 방법": {
+          rich_text: [{ type: "text", text: { content: safeAnalysis.solution_method } }]
         },
-        작성자: {
-          rich_text: [{ type: "text", text: { content: userName } }]
+        "이슈 제기자": {
+          rich_text: [{ type: "text", text: { content: safeAnalysis.issue_reporter } }]
         },
-        "예상 소요시간": {
-          number: parseInt(analysis.resource_estimate) || 0
+        "이슈 해결자": {
+          rich_text: [{ type: "text", text: { content: safeAnalysis.issue_resolver } }]
         },
         발생일시: {
           date: { start: new Date(parseFloat(message.ts) * 1000).toISOString() }
         },
+        // 스레드 링크
+        ...(threadLink && {
+          "스레드 링크": {
+            url: threadLink
+          }
+        }),
         "원본 메시지": {
-          rich_text: [{ type: "text", text: { content: message.text } }]
+          rich_text: [{ type: "text", text: { content: message.text || "메시지 없음" } }]
         },
-        "스레드 요약": {
-          rich_text: [{ type: "text", text: { content: analysis.thread_summary || "스레드 없음" } }]
-        },
-        "AI 종합 분석": {
-          rich_text: [{ type: "text", text: { content: analysis.summary } }]
+        "스레드 내용": {
+          rich_text: [{ type: "text", text: { content: threadContent } }]
         }
       }
     });
   }
 
-  // 통계 생성 (스레드 통계 포함)
+  // RAG용 간단한 통계 생성
   generateStatistics(analyses) {
     const stats = {
       categoryFrequency: {},
-      urgencyDistribution: { high: 0, medium: 0, low: 0 },
-      totalResourceTime: 0,
-      averageResourceTime: 0,
-      topKeywords: {},
-      operationTypes: {},
-      dailyOperations: {},
+      issuePatterns: {
+        topIssueTypes: {},
+        systemComponents: {},
+        topResolvers: {}
+      },
       threadStatistics: {
         totalThreads: 0,
         totalReplies: 0,
-        averageRepliesPerThread: 0,
         messagesWithThreads: 0,
         threadPercentage: 0
       },
@@ -651,32 +747,28 @@ class BulkSlackAnalyzer {
       }
     };
 
-    let totalResourceTime = 0;
-
     analyses.forEach((item) => {
       const { analysis, message, messageData } = item;
 
       // 카테고리별 분포
       stats.categoryFrequency[analysis.category] = (stats.categoryFrequency[analysis.category] || 0) + 1;
 
-      // 긴급도 분포
-      stats.urgencyDistribution[analysis.urgency]++;
+      // 이슈 타입 빈도
+      if (analysis.issue_type) {
+        stats.issuePatterns.topIssueTypes[analysis.issue_type] = (stats.issuePatterns.topIssueTypes[analysis.issue_type] || 0) + 1;
+      }
 
-      // 리소스 시간
-      const resourceTime = parseInt(analysis.resource_estimate) || 0;
-      totalResourceTime += resourceTime;
+      // 시스템 컴포넌트 빈도
+      if (analysis.system_components) {
+        analysis.system_components.forEach((component) => {
+          stats.issuePatterns.systemComponents[component] = (stats.issuePatterns.systemComponents[component] || 0) + 1;
+        });
+      }
 
-      // 키워드 빈도
-      analysis.keywords.forEach((keyword) => {
-        stats.topKeywords[keyword] = (stats.topKeywords[keyword] || 0) + 1;
-      });
-
-      // 운영 유형 빈도
-      stats.operationTypes[analysis.operation_type] = (stats.operationTypes[analysis.operation_type] || 0) + 1;
-
-      // 일별 분포
-      const date = new Date(parseFloat(message.ts) * 1000).toDateString();
-      stats.dailyOperations[date] = (stats.dailyOperations[date] || 0) + 1;
+      // 해결 담당자 빈도 (참고용)
+      if (analysis.issue_resolver && analysis.issue_resolver !== "미확인") {
+        stats.issuePatterns.topResolvers[analysis.issue_resolver] = (stats.issuePatterns.topResolvers[analysis.issue_resolver] || 0) + 1;
+      }
 
       // 스레드 통계
       if (messageData && messageData.thread_replies && messageData.thread_replies.length > 0) {
@@ -686,13 +778,7 @@ class BulkSlackAnalyzer {
       }
     });
 
-    stats.totalResourceTime = totalResourceTime;
-    stats.averageResourceTime = analyses.length > 0 ? Math.round(totalResourceTime / analyses.length) : 0;
-
-    // 스레드 통계 계산
-    if (stats.threadStatistics.totalThreads > 0) {
-      stats.threadStatistics.averageRepliesPerThread = Math.round(stats.threadStatistics.totalReplies / stats.threadStatistics.totalThreads);
-    }
+    // 스레드 비율 계산
     stats.threadStatistics.threadPercentage =
       analyses.length > 0 ? Math.round((stats.threadStatistics.messagesWithThreads / analyses.length) * 100) : 0;
 
@@ -720,68 +806,84 @@ class BulkSlackAnalyzer {
 - **총 이슈**: ${this.progress.savedToNotion}개
 - **분석 완료**: ${new Date().toLocaleDateString("ko-KR")}
 
-## 🔍 새로운 분류 체계
-- **❓ 기능 문의**: 기능을 몰라서 발생한 정상적인 상황 (교육/가이드 필요)
-- **🐛 버그 제보**: 실제 오류/버그가 발생한 상황 (개발팀 대응 필요)
-- **🚨 인시던트 대응**: 시스템 장애, 긴급 대응 필요
-- **기타 운영 이슈**: 유지보수, 모니터링, 성능, 보안, 문서화 등
-
 ## 📈 카테고리별 분포
-
 ${sortedCategories
   .map(
     ([category, count]) =>
-      `### ${this.getCategoryDisplayName(category)}
-- **건수**: ${count}개 (${Math.round((count / this.progress.savedToNotion) * 100)}%)
-- **예상 리소스**: ${this.calculateCategoryResource(category, stats)}시간`
+      `**${this.getCategoryDisplayName(category)}**: ${count}개 (${Math.round(
+        (count / this.progress.savedToNotion) * 100
+      )}%) - 예상 ${this.calculateCategoryResource(category, stats)}시간`
   )
-  .join("\n\n")}
-
-## ⚡ 긴급도 분석
-- 🔴 **높음**: ${stats.urgencyDistribution.high}개 (${Math.round((stats.urgencyDistribution.high / this.progress.savedToNotion) * 100)}%)
-- 🟡 **보통**: ${stats.urgencyDistribution.medium}개 (${Math.round((stats.urgencyDistribution.medium / this.progress.savedToNotion) * 100)}%)
-- 🟢 **낮음**: ${stats.urgencyDistribution.low}개 (${Math.round((stats.urgencyDistribution.low / this.progress.savedToNotion) * 100)}%)
-
-## 💰 리소스 분석
-- **총 예상 소요시간**: ${Math.round(stats.totalResourceTime / 60)}시간 ${stats.totalResourceTime % 60}분
-- **평균 작업시간**: ${stats.averageResourceTime}분/건
-- **일평균 운영업무**: ${Math.round(this.progress.savedToNotion / Object.keys(stats.dailyOperations).length)}건/일
-
-## 🧵 스레드 활동 분석
-- **스레드 보유 메시지**: ${stats.threadStatistics.messagesWithThreads}개 (${stats.threadStatistics.threadPercentage}%)
-- **총 스레드 수**: ${stats.threadStatistics.totalThreads}개
-- **총 답글 수**: ${stats.threadStatistics.totalReplies}개
-- **스레드당 평균 답글**: ${stats.threadStatistics.averageRepliesPerThread}개
-
-## 🔑 주요 키워드 TOP 15
-${Object.entries(stats.topKeywords)
-  .sort(([, a], [, b]) => b - a)
-  .slice(0, 15)
-  .map(([keyword, count], index) => `${index + 1}. **${keyword}**: ${count}회`)
   .join("\n")}
 
+## ⚡ 긴급도 분석
+🔴 **높음**: ${stats.urgencyDistribution.high}개 (${Math.round(
+      (stats.urgencyDistribution.high / this.progress.savedToNotion) * 100
+    )}%) | 🟡 **보통**: ${stats.urgencyDistribution.medium}개 (${Math.round(
+      (stats.urgencyDistribution.medium / this.progress.savedToNotion) * 100
+    )}%) | 🟢 **낮음**: ${stats.urgencyDistribution.low}개 (${Math.round((stats.urgencyDistribution.low / this.progress.savedToNotion) * 100)}%)
+
+## 💰 리소스 & 스레드 분석
+**총 예상 소요시간**: ${Math.round(stats.totalResourceTime / 60)}시간 ${stats.totalResourceTime % 60}분 | **평균 작업시간**: ${
+      stats.averageResourceTime
+    }분/건 | **스레드 보유 메시지**: ${stats.threadStatistics.messagesWithThreads}개 (${stats.threadStatistics.threadPercentage}%)
+
+## 🔍 이슈 패턴 분석
+**주요 이슈 타입 TOP 5**: ${
+      Object.entries(stats.issuePatterns.topIssueTypes || {})
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, 5)
+        .map(([type, count]) => `${type}(${count}건)`)
+        .join(", ") || "데이터 없음"
+    }
+
+**시스템 컴포넌트 TOP 5**: ${
+      Object.entries(stats.issuePatterns.systemComponents || {})
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, 5)
+        .map(([component, count]) => `${component}(${count}건)`)
+        .join(", ") || "데이터 없음"
+    }
+
+## ✅ 해결 현황 분석
+- **해결률**: ${stats.resolutionStatistics.resolutionRate}% (해결 ${stats.resolutionStatistics.resolvedCount}건 / 미해결 ${
+      stats.resolutionStatistics.unresolvedCount
+    }건)
+- **주요 해결 담당자**: ${Object.entries(stats.resolutionStatistics.topResolvers)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 5)
+      .map(([resolver, count]) => `${resolver}(${count}건)`)
+      .join(", ")}
+
+## 🔑 주요 키워드 TOP 10
+${Object.entries(stats.topKeywords)
+  .sort(([, a], [, b]) => b - a)
+  .slice(0, 10)
+  .map(([keyword, count]) => `${keyword}(${count}회)`)
+  .join(", ")}
+
 ## 📊 처리 통계
-- **수집 성공률**: ${Math.round((this.progress.totalMessages / (this.progress.totalMessages + this.progress.errors)) * 100)}%
-- **AI 분석 성공률**: ${Math.round((this.progress.analyzedMessages / (this.progress.analyzedMessages + this.progress.errors)) * 100)}%
-- **Notion 저장 성공률**: ${Math.round((this.progress.savedToNotion / this.progress.analyzedMessages) * 100)}%
+**수집 성공률**: ${Math.round(
+      (this.progress.totalMessages / (this.progress.totalMessages + this.progress.errors)) * 100
+    )}% | **AI 분석 성공률**: ${Math.round(
+      (this.progress.analyzedMessages / (this.progress.analyzedMessages + this.progress.errors)) * 100
+    )}% | **Notion 저장 성공률**: ${Math.round((this.progress.savedToNotion / this.progress.analyzedMessages) * 100)}%
 
 ## 🎯 핵심 인사이트
-1. **가장 빈번한 운영 업무**: ${sortedCategories[0] ? this.getCategoryDisplayName(sortedCategories[0][0]) : "N/A"}
-2. **가장 시간 소모적인 작업**: ${this.getMaxResourceCategory(stats)}
-3. **스레드 활동 특성**: ${stats.threadStatistics.threadPercentage}% 메시지가 스레드 논의 포함 (평균 ${
-      stats.threadStatistics.averageRepliesPerThread
-    }개 답글)
-4. **문의 vs 버그 분포**: 기능 문의 ${stats.categoryFrequency.feature_inquiry || 0}개 vs 버그 제보 ${stats.categoryFrequency.bug_report || 0}개
-5. **개선 우선순위**: 고빈도 + 고비용 작업부터 자동화 검토
+**주요 업무**: ${sortedCategories[0] ? this.getCategoryDisplayName(sortedCategories[0][0]) : "N/A"} | **해결률**: ${
+      stats.resolutionStatistics.resolutionRate
+    }% | **스레드 활동**: ${stats.threadStatistics.threadPercentage}% | **주요 이슈**: ${
+      Object.entries(stats.issuePatterns.topIssueTypes).sort(([, a], [, b]) => b - a)[0]
+        ? Object.entries(stats.issuePatterns.topIssueTypes).sort(([, a], [, b]) => b - a)[0][0]
+        : "N/A"
+    }
 
-## 📋 권장 액션 아이템
-- [ ] 상위 3개 카테고리 프로세스 표준화
-- [ ] 반복 작업 자동화 도구 도입 검토  
-- [ ] 긴급도 높은 작업 대응 체계 구축
-- [ ] **기능 문의** 빈도 높은 기능 대상 사용자 가이드/교육 강화
-- [ ] **버그 제보** 패턴 분석 및 개발팀 피드백 체계 구축
-- [ ] 스레드 활동이 활발한 이슈 심화 분석
-- [ ] 월간 운영 현황 모니터링 시스템 구성
+## 📋 핵심 액션 아이템
+1. **프로세스 표준화**: 상위 3개 카테고리 프로세스 표준화
+2. **자동화 도구**: 반복 작업 자동화 도구 도입 검토
+3. **이슈 패턴 활용**: 유사 이슈 검색 시스템 구축
+4. **해결 담당자 최적화**: 역량 분석 및 업무 배분 최적화
+5. **미해결 이슈 관리**: 우선순위 재검토 및 후속 조치
 
 ---
 *🤖 Bulk Slack Analyzer가 ${new Date().toLocaleString("ko-KR")}에 자동 생성*`;
@@ -826,6 +928,73 @@ ${Object.entries(stats.topKeywords)
     console.log(`   🧵 스레드 API 딜레이: ${this.config.threadApiDelay}ms`);
   }
 
+  // 안전한 사용자 이름 가져오기 (캐시 포함)
+  async getUserDisplayName(userId) {
+    if (!userId || userId === "undefined" || userId.trim() === "") {
+      return "Unknown User";
+    }
+
+    // 캐시 확인
+    if (this.userCache.has(userId)) {
+      return this.userCache.get(userId);
+    }
+
+    try {
+      const userInfo = await this.slack.users.info({ user: userId });
+
+      if (!userInfo.user) {
+        const result = `${userId} (정보 없음)`;
+        this.userCache.set(userId, result);
+        return result;
+      }
+
+      const user = userInfo.user;
+      let displayName;
+
+      // 사용자 상태 확인
+      if (user.deleted) {
+        displayName = `${user.name || userId} (삭제됨)`;
+      } else if (user.is_bot) {
+        displayName = `${user.name || userId} (봇)`;
+      } else if (user.is_restricted || user.is_ultra_restricted) {
+        displayName = `${user.real_name || user.name || userId} (제한됨)`;
+      } else {
+        // 정상 사용자
+        displayName = user.real_name || user.name || userId;
+      }
+
+      // 캐시에 저장
+      this.userCache.set(userId, displayName);
+      return displayName;
+    } catch (error) {
+      let result;
+      if (error.message.includes("user_not_found")) {
+        result = `${userId} (찾을 수 없음)`;
+      } else if (error.message.includes("account_inactive")) {
+        result = `${userId} (비활성 계정)`;
+      } else {
+        console.log(`     ⚠️ 사용자 조회 실패: ${userId} - ${error.message}`);
+        result = `${userId} (조회 실패)`;
+      }
+
+      // 실패한 경우도 캐시에 저장 (반복 조회 방지)
+      this.userCache.set(userId, result);
+      return result;
+    }
+  }
+
+  // Slack 스레드 링크 생성
+  generateSlackThreadLink(channelId, threadTs, workspaceUrl = null) {
+    // Workspace URL이 없으면 환경변수에서 가져오기
+    const baseUrl = workspaceUrl || process.env.SLACK_WORKSPACE_URL || "https://nx-gsc.slack.com";
+
+    // 타임스탬프에서 마침표 제거 (Slack 링크 형식)
+    const cleanTs = threadTs.replace(".", "");
+
+    // 스레드 링크 형식: https://workspace.slack.com/archives/CHANNEL_ID/p{TIMESTAMP}
+    return `${baseUrl}/archives/${channelId}/p${cleanTs}`;
+  }
+
   // 유틸리티 메서드들
   async delay(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -833,16 +1002,12 @@ ${Object.entries(stats.topKeywords)
 
   getCategoryDisplayName(category) {
     const names = {
-      incident_response: "🚨 인시던트 대응",
-      maintenance: "🔧 시스템 유지보수",
-      monitoring: "👀 모니터링/알림",
-      user_support: "🤝 사용자 지원",
-      performance: "⚡ 성능 최적화",
-      security: "🔒 보안 관련",
-      documentation: "📚 문서화",
-      feature_inquiry: "❓ 기능 문의",
       bug_report: "🐛 버그 제보",
-      etc: "📋 기타"
+      feature_inquiry: "❓ 기능 문의",
+      maintenance: "🔧 시스템 유지보수",
+      notification: "📢 공지사항",
+      discussion: "💬 토론",
+      other: "📋 기타"
     };
     return names[category] || "📋 기타";
   }
@@ -878,7 +1043,7 @@ ${Object.entries(stats.topKeywords)
 
   // 메인 실행 함수
   async runBulkAnalysis(channelName = "안티치트인사이트팀-help", daysBack = 30) {
-    console.log("🚀 대량 Slack 운영 이슈 분석 시작!");
+    console.log("🚀 RAG용 Slack 데이터 분석 시작!");
     console.log("=".repeat(80));
     console.log(`📢 대상 채널: #${channelName}`);
     console.log(`📅 분석 기간: 최근 ${daysBack}일`);
@@ -897,6 +1062,13 @@ ${Object.entries(stats.topKeywords)
     const startTime = new Date();
 
     try {
+      // 0. 임시 파일 정리 (새로 시작)
+      const tempAnalysisFile = "temp_analyses.json";
+      if (fs.existsSync(tempAnalysisFile)) {
+        fs.unlinkSync(tempAnalysisFile);
+        console.log("🧹 이전 임시 파일 정리 완료");
+      }
+
       // 1. 대량 메시지 수집
       const { channel, messages } = await this.collectAllMessages(channelName, daysBack);
 
@@ -922,15 +1094,14 @@ ${Object.entries(stats.topKeywords)
       console.log("=".repeat(80));
       console.log(`⏱️ 총 소요시간: ${Math.floor(totalTime / 60)}분 ${totalTime % 60}초`);
       console.log(`📊 처리 결과:`);
-      console.log(`   📝 수집된 메시지: ${this.progress.totalMessages}개`);
-      console.log(`   🤖 AI 분석 성공: ${this.progress.analyzedMessages}개`);
-      console.log(`   📚 Notion 저장 성공: ${this.progress.savedToNotion}개`);
+      console.log(`   📝 수집된 메시지: ${messages.length}개`);
+      console.log(`   🤖 AI 분석 성공: ${analyses.length}개`);
+      console.log(`   📚 Notion 저장 성공: ${result.savedCount}개`);
       console.log(`   ❌ 전체 오류: ${this.progress.errors}개`);
-      console.log(`   📈 전체 성공률: ${Math.round((this.progress.savedToNotion / this.progress.totalMessages) * 100)}%`);
+      console.log(`   📈 전체 성공률: ${Math.round((result.savedCount / messages.length) * 100)}%`);
       console.log("");
       console.log(`🔗 결과 확인:`);
       console.log(`   📊 데이터베이스: ${result.database.url}`);
-      console.log(`   📈 대시보드: ${result.summary.url}`);
       console.log("");
       console.log(`📋 주요 인사이트:`);
 
@@ -938,11 +1109,13 @@ ${Object.entries(stats.topKeywords)
         .sort(([, a], [, b]) => b - a)
         .slice(0, 3);
 
-      topCategories.forEach(([category, count], index) => {
-        console.log(
-          `   ${index + 1}. ${this.getCategoryDisplayName(category)}: ${count}개 (${Math.round((count / this.progress.savedToNotion) * 100)}%)`
-        );
-      });
+      if (topCategories.length > 0) {
+        topCategories.forEach(([category, count], index) => {
+          console.log(`   ${index + 1}. ${category}: ${count}개 (${Math.round((count / result.savedCount) * 100)}%)`);
+        });
+      } else {
+        console.log(`   분석된 카테고리가 없습니다.`);
+      }
 
       // 임시 파일 정리
       const tempFile = "temp_analyses.json";
@@ -980,11 +1153,11 @@ async function startBulkAnalysis() {
     // analyzer.enableTurboMode(); // 터보 모드 활성화
     // analyzer.enableSafeMode();  // 안전 모드 활성화
 
-    // 최근 10일간 안티치트인사이트팀-help 채널 전체 분석
-    const result = await analyzer.runBulkAnalysis("안티치트인사이트팀-help", 10);
+    // 최근 7일간 안티치트인사이트팀-help 채널 전체 분석
+    const result = await analyzer.runBulkAnalysis("안티치트인사이트팀-help", 4);
 
-    console.log("\n✅ 대량 분석 시스템 완료!");
-    console.log("🎯 이제 실제 운영 이슈 관리가 가능합니다!");
+    console.log("\n✅ RAG 데이터베이스 구축 완료!");
+    console.log("🎯 RAG 데이터베이스 구축 완료! AI 질의응답 시스템 준비 완료!");
   } catch (error) {
     console.error("💥 대량 분석 실패:", error.message);
   }
