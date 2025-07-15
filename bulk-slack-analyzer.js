@@ -25,7 +25,14 @@ class BulkSlackAnalyzer {
       maxRetries: 3, // 실패시 재시도 횟수
       saveInterval: 10, // N개마다 중간 저장
       resumeFromFile: true, // 중단된 작업 이어서 하기
-      turboMode: false // 터보 모드 (Rate Limit 무시하고 빠르게 실행)
+      turboMode: false, // 터보 모드 (Rate Limit 무시하고 빠르게 실행)
+
+      // 무한 루프 방지 설정
+      maxPagesPerChannel: 2000, // 채널당 최대 페이지 수 (2000페이지 = 약 400,000개 메시지, 3년+ 데이터 커버)
+      maxThreadRetries: 5, // 스레드 수집 최대 재시도 횟수
+      maxConsecutiveErrors: 10, // 연속 에러 발생 시 중단하는 임계값
+      aiAnalysisTimeout: 30000, // AI 분석 타임아웃 (30초)
+      circuitBreakerThreshold: 20 // Circuit Breaker 임계값 (20번 연속 실패시 중단)
     };
 
     // 진행상황 추적
@@ -56,14 +63,27 @@ class BulkSlackAnalyzer {
 
     // 사용자 정보 캐시 (API 호출 최소화)
     this.userCache = new Map();
+
+    // Circuit Breaker 패턴 (연속 에러 발생 시 중단)
+    this.circuitBreaker = {
+      consecutiveErrors: 0,
+      isOpen: false,
+      lastErrorTime: null,
+      totalErrors: 0
+    };
   }
 
   // 1. 대량 메시지 수집 (페이지네이션 지원 + 스레드 포함)
-  async collectAllMessages(channelName, daysBack = 30) {
+  async collectAllMessages(channelName, daysBack = null) {
     console.log("📱 대량 Slack 메시지 수집 시작 (스레드 포함)");
     console.log("=".repeat(60));
     console.log(`📢 채널: #${channelName}`);
-    console.log(`📅 수집 기간: 최근 ${daysBack}일`);
+
+    if (daysBack) {
+      console.log(`📅 수집 기간: 최근 ${daysBack}일`);
+    } else {
+      console.log(`📅 수집 기간: 전체 히스토리`);
+    }
 
     try {
       // 채널 찾기
@@ -83,9 +103,14 @@ class BulkSlackAnalyzer {
       // 채널 ID 저장 (스레드 링크 생성용)
       this.currentChannelId = channel.id;
 
-      // 날짜 범위 설정
-      const oldest = Math.floor((Date.now() - daysBack * 24 * 60 * 60 * 1000) / 1000);
-      console.log(`📅 수집 시작일: ${new Date(oldest * 1000).toLocaleDateString("ko-KR")}`);
+      // 날짜 범위 설정 (daysBack이 null이면 전체 히스토리)
+      let oldest = undefined;
+      if (daysBack) {
+        oldest = Math.floor((Date.now() - daysBack * 24 * 60 * 60 * 1000) / 1000);
+        console.log(`📅 수집 시작일: ${new Date(oldest * 1000).toLocaleDateString("ko-KR")}`);
+      } else {
+        console.log(`📅 수집 시작일: 채널 생성일부터`);
+      }
 
       // 전체 메시지 수집 (페이지네이션)
       let allMessages = [];
@@ -93,17 +118,31 @@ class BulkSlackAnalyzer {
       let pageCount = 0;
 
       console.log("\n🔄 메시지 수집 중...");
+      console.log(`⚠️ 안전장치: 최대 ${this.config.maxPagesPerChannel}페이지까지 수집`);
 
       do {
         pageCount++;
-        console.log(`📄 페이지 ${pageCount} 수집 중...`);
+        console.log(`📄 페이지 ${pageCount}/${this.config.maxPagesPerChannel} 수집 중...`);
 
-        const response = await this.slack.conversations.history({
+        // 최대 페이지 수 제한 (무한 루프 방지)
+        if (pageCount > this.config.maxPagesPerChannel) {
+          console.log(`⚠️ 최대 페이지 수 (${this.config.maxPagesPerChannel}) 도달! 수집을 중단합니다.`);
+          console.log(`   📊 현재까지 수집된 메시지: ${allMessages.length}개`);
+          break;
+        }
+
+        const requestParams = {
           channel: channel.id,
-          oldest: oldest,
           limit: 200,
           cursor: cursor
-        });
+        };
+
+        // oldest가 있을 때만 추가
+        if (oldest) {
+          requestParams.oldest = oldest;
+        }
+
+        const response = await this.slack.conversations.history(requestParams);
 
         allMessages.push(...response.messages);
         cursor = response.response_metadata?.next_cursor;
@@ -134,6 +173,7 @@ class BulkSlackAnalyzer {
       // 스레드 포함 메시지 수집
       const messagesWithThreads = [];
       let threadStats = { threadsCount: 0, totalReplies: 0 };
+      let threadRetryCount = 0; // 스레드 재시도 추적
 
       for (let i = 0; i < filteredMessages.length; i++) {
         const message = filteredMessages[i];
@@ -193,10 +233,20 @@ class BulkSlackAnalyzer {
             }
           } catch (error) {
             if (error.message.includes("rate limit") || error.message.includes("rate_limited")) {
+              threadRetryCount++;
+
+              // 스레드 재시도 횟수 제한 (무한 루프 방지)
+              if (threadRetryCount > this.config.maxThreadRetries) {
+                console.log(`     ⚠️ 스레드 재시도 횟수 초과 (${this.config.maxThreadRetries}회)! 해당 스레드 건너뜀`);
+                console.log(`     📊 현재까지 처리된 스레드: ${threadStats.threadsCount}개`);
+                continue;
+              }
+
               this.rateLimitHitCount++;
               this.adaptiveDelay = true;
               const adaptiveDelayTime = this.config.threadApiDelay * (1 + this.rateLimitHitCount * 0.5);
               console.log(`     ⚠️ Rate Limit 감지 (#${this.rateLimitHitCount}) - 딜레이 증가: ${adaptiveDelayTime}ms`);
+              console.log(`     🔄 스레드 재시도 (${threadRetryCount}/${this.config.maxThreadRetries})`);
               await this.delay(adaptiveDelayTime);
 
               // 재시도 로직
@@ -232,6 +282,7 @@ class BulkSlackAnalyzer {
                 }
 
                 console.log(`     ✅ 재시도 성공: ${replies.length}개 답글 수집됨`);
+                threadRetryCount = 0; // 성공 시 재시도 카운트 리셋
               } catch (retryError) {
                 console.log(`     ❌ 재시도 실패: ${retryError.message}`);
               }
@@ -312,6 +363,9 @@ class BulkSlackAnalyzer {
       // 배치 내 메시지 처리
       for (const messageData of batch) {
         try {
+          // Circuit Breaker 체크
+          this.checkCircuitBreaker();
+
           const displayText = messageData.original_message.text.substring(0, 50);
           const threadInfo = messageData.thread_replies.length > 0 ? ` (+ ${messageData.thread_replies.length}개 답글)` : "";
           console.log(`      🔍 분석 중: "${displayText}..."${threadInfo}`);
@@ -329,10 +383,16 @@ class BulkSlackAnalyzer {
 
           this.progress.analyzedMessages++;
 
+          // Circuit Breaker: 성공 시 카운트 리셋
+          this.recordSuccess();
+
           console.log(`      ✅ ${analysis.category} | ${analysis.issue_type} | ${analysis.is_resolved ? "해결됨" : "미해결"}`);
         } catch (error) {
           console.log(`      ❌ 분석 실패: ${error.message}`);
           this.progress.errors++;
+
+          // Circuit Breaker: 에러 발생 시 카운트 증가
+          this.recordError();
 
           // 에러도 저장 (나중에 재처리용)
           this.results.errors.push({
@@ -340,6 +400,11 @@ class BulkSlackAnalyzer {
             error: error.message,
             timestamp: messageData.original_message.ts
           });
+
+          // Circuit Breaker가 열린 경우 전체 프로세스 중단
+          if (this.circuitBreaker.isOpen) {
+            throw new Error(`Circuit Breaker 활성화로 인한 프로세스 중단`);
+          }
         }
 
         // 요청간 딜레이
@@ -523,8 +588,15 @@ class BulkSlackAnalyzer {
 3. **사람 이름**: 스레드의 [사용자명] 형태에서 추출하여 제기자와 해결자 식별
 4. **원인과 해결방법**: 스레드에서 원인 분석 및 해결 과정 추출`;
 
-      console.log(`      🤖 AI 분석 요청 중...`);
-      const response = await this.snowflakeAI.callOpenAI(prompt);
+      console.log(`      🤖 AI 분석 요청 중... (타임아웃: ${this.config.aiAnalysisTimeout}ms)`);
+
+      // AI 분석 타임아웃 처리 (무한 대기 방지)
+      const response = await Promise.race([
+        this.snowflakeAI.callOpenAI(prompt),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error(`AI 분석 타임아웃 (${this.config.aiAnalysisTimeout}ms 초과)`)), this.config.aiAnalysisTimeout)
+        )
+      ]);
 
       // JSON 파싱 안전하게 처리 (코드블록 제거)
       let result;
@@ -983,6 +1055,35 @@ ${Object.entries(stats.topKeywords)
     }
   }
 
+  // Circuit Breaker 패턴: 연속 에러 체크
+  checkCircuitBreaker() {
+    if (this.circuitBreaker.isOpen) {
+      throw new Error(`Circuit Breaker가 열려있습니다. 연속 에러 ${this.circuitBreaker.consecutiveErrors}회 발생으로 인해 프로세스를 중단합니다.`);
+    }
+  }
+
+  // Circuit Breaker 패턴: 에러 발생 시 호출
+  recordError() {
+    this.circuitBreaker.consecutiveErrors++;
+    this.circuitBreaker.totalErrors++;
+    this.circuitBreaker.lastErrorTime = new Date();
+
+    console.log(`⚠️ Circuit Breaker: 연속 에러 ${this.circuitBreaker.consecutiveErrors}/${this.config.circuitBreakerThreshold}회`);
+
+    if (this.circuitBreaker.consecutiveErrors >= this.config.circuitBreakerThreshold) {
+      this.circuitBreaker.isOpen = true;
+      console.log(`🚨 Circuit Breaker 열림! 연속 에러 ${this.circuitBreaker.consecutiveErrors}회 발생으로 프로세스 중단`);
+    }
+  }
+
+  // Circuit Breaker 패턴: 성공 시 호출
+  recordSuccess() {
+    if (this.circuitBreaker.consecutiveErrors > 0) {
+      console.log(`✅ Circuit Breaker: 연속 에러 카운트 리셋 (${this.circuitBreaker.consecutiveErrors} → 0)`);
+    }
+    this.circuitBreaker.consecutiveErrors = 0;
+  }
+
   // Slack 스레드 링크 생성
   generateSlackThreadLink(channelId, threadTs, workspaceUrl = null) {
     // Workspace URL이 없으면 환경변수에서 가져오기
@@ -1042,13 +1143,26 @@ ${Object.entries(stats.topKeywords)
   }
 
   // 메인 실행 함수
-  async runBulkAnalysis(channelName = "안티치트인사이트팀-help", daysBack = 30) {
+  async runBulkAnalysis(channelName = "안티치트인사이트팀-help", daysBack = null) {
     console.log("🚀 RAG용 Slack 데이터 분석 시작!");
     console.log("=".repeat(80));
     console.log(`📢 대상 채널: #${channelName}`);
-    console.log(`📅 분석 기간: 최근 ${daysBack}일`);
+
+    if (daysBack) {
+      console.log(`📅 분석 기간: 최근 ${daysBack}일`);
+    } else {
+      console.log(`📅 분석 기간: 전체 히스토리`);
+    }
+
     console.log(`⚙️ 배치 크기: ${this.config.batchSize}개`);
     console.log(`⏱️ 시작 시간: ${new Date().toLocaleString("ko-KR")}`);
+
+    // 안전장치 정보 출력
+    console.log("\n🛡️ 무한 루프 방지 안전장치:");
+    console.log(`   📄 최대 페이지 수: ${this.config.maxPagesPerChannel}개`);
+    console.log(`   🧵 스레드 최대 재시도: ${this.config.maxThreadRetries}회`);
+    console.log(`   🤖 AI 분석 타임아웃: ${this.config.aiAnalysisTimeout}ms`);
+    console.log(`   🚨 Circuit Breaker: 연속 에러 ${this.config.circuitBreakerThreshold}회 시 중단`);
     console.log("");
 
     // Rate Limit 회피 설정 표시
@@ -1153,8 +1267,8 @@ async function startBulkAnalysis() {
     // analyzer.enableTurboMode(); // 터보 모드 활성화
     // analyzer.enableSafeMode();  // 안전 모드 활성화
 
-    // 최근 7일간 안티치트인사이트팀-help 채널 전체 분석
-    const result = await analyzer.runBulkAnalysis("안티치트인사이트팀-help", 4);
+    // 안티치트인사이트팀-help 채널 전체 히스토리 분석
+    const result = await analyzer.runBulkAnalysis("안티치트인사이트팀-help");
 
     console.log("\n✅ RAG 데이터베이스 구축 완료!");
     console.log("🎯 RAG 데이터베이스 구축 완료! AI 질의응답 시스템 준비 완료!");
