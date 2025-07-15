@@ -31,8 +31,23 @@ class SlackNotionBot {
 
   // 이벤트 핸들러 설정
   setupEventHandlers() {
+    // 모든 이벤트 로깅 (디버깅용)
+    this.app.event(/.*/, async ({ event, client }) => {
+      console.log(`🔔 이벤트 수신: ${event.type}`);
+      console.log(`📋 이벤트 상세:`, {
+        type: event.type,
+        user: event.user,
+        channel: event.channel,
+        text: event.text ? event.text.substring(0, 50) : "없음"
+      });
+      if (event.type === "app_mention") {
+        console.log("🎯 멘션 이벤트 감지됨!");
+      }
+    });
+
     // 앱 멘션 이벤트 처리
     this.app.event("app_mention", async ({ event, client, say }) => {
+      console.log("🚀 멘션 핸들러 실행됨");
       await this.handleMention(event, client, say);
     });
 
@@ -57,30 +72,59 @@ class SlackNotionBot {
       console.error("🔥 Slack Bot 오류:", error);
     });
 
-    // 질문 검색 전용 슬래시 명령어
-    this.app.command("/ask", async ({ command, ack, respond, client }) => {
+    // 봇 특화 슬래시 명령어들
+    this.app.command("/nx-ask", async ({ command, ack, respond, client }) => {
       await this.handleAskCommand(command, ack, respond, client);
     });
 
-    // 요약 전용 슬래시 명령어
-    this.app.command("/summary", async ({ command, ack, respond, client }) => {
+    this.app.command("/nx-summary", async ({ command, ack, respond, client }) => {
       await this.handleSummaryCommand(command, ack, respond, client);
     });
 
-    // RAG 검색 전용 슬래시 명령어
-    this.app.command("/solve", async ({ command, ack, respond, client }) => {
+    this.app.command("/nx-solve", async ({ command, ack, respond, client }) => {
       await this.handleSolveCommand(command, ack, respond, client);
     });
 
-    // RAG 검색 대안 명령어
-    this.app.command("/rag", async ({ command, ack, respond, client }) => {
+    this.app.command("/tech-help", async ({ command, ack, respond, client }) => {
       await this.handleSolveCommand(command, ack, respond, client);
+    });
+
+    // 기존 명령어들 (더 이상 지원하지 않음)
+    this.app.command("/acdoc", async ({ command, ack, respond, client }) => {
+      await this.handleDeprecatedCommand(command, ack, respond, client, "/acdoc");
+    });
+
+    this.app.command("/notion", async ({ command, ack, respond, client }) => {
+      await this.handleDeprecatedCommand(command, ack, respond, client, "/notion");
+    });
+
+    // 일반적인 명령어들도 우리 봇 전용으로 안내
+    this.app.command("/ask", async ({ command, ack, respond, client }) => {
+      await this.handleRedirectCommand(command, ack, respond, client, "/ask", "/nx-ask");
+    });
+
+    this.app.command("/solve", async ({ command, ack, respond, client }) => {
+      await this.handleRedirectCommand(command, ack, respond, client, "/solve", "/nx-solve");
+    });
+
+    this.app.command("/summary", async ({ command, ack, respond, client }) => {
+      await this.handleRedirectCommand(command, ack, respond, client, "/summary", "/nx-summary");
+    });
+
+    this.app.command("/rag", async ({ command, ack, respond, client }) => {
+      await this.handleRedirectCommand(command, ack, respond, client, "/rag", "/tech-help");
     });
   }
 
   // 멘션 처리
   async handleMention(event, client, say) {
     console.log("📢 앱 멘션 받음:", event.text);
+    console.log("🔍 멘션 이벤트 상세:", {
+      user: event.user,
+      channel: event.channel,
+      ts: event.ts,
+      type: event.type
+    });
 
     try {
       // 로딩 메시지 표시
@@ -125,6 +169,12 @@ class SlackNotionBot {
   // 다이렉트 메시지 처리
   async handleDirectMessage(message, client, say) {
     console.log("💬 DM 받음:", message.text);
+    console.log("🔍 DM 이벤트 상세:", {
+      user: message.user,
+      channel: message.channel,
+      channel_type: message.channel_type,
+      ts: message.ts
+    });
 
     try {
       // 로딩 메시지
@@ -459,6 +509,7 @@ ${recentPages.map((page) => `- ${page.title} (${page.lastEdited})`).join("\n")}
       }
     } catch (error) {
       console.error("❌ 일반 대화 처리 실패:", error);
+
       throw error;
     }
   }
@@ -554,6 +605,90 @@ ${recentPages.map((page) => `- ${page.title} (${page.lastEdited})`).join("\n")}
         response_type: "ephemeral"
       });
     }
+  }
+
+  // 더 이상 지원하지 않는 명령어 처리
+  async handleDeprecatedCommand(command, ack, respond, client, commandName) {
+    await ack();
+
+    console.log(`⚠️ 더 이상 지원하지 않는 명령어 사용: ${commandName}`);
+
+    await respond({
+      text: `📝 \`${commandName}\` 명령어는 더 이상 지원하지 않습니다`,
+      blocks: [
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: `📝 *\`${commandName}\` 명령어는 더 이상 지원하지 않습니다*`
+          }
+        },
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: "이 봇은 이제 **검색과 질문 전용**입니다! 🔍"
+          }
+        },
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: "*💡 대신 이런 명령어를 사용해보세요:*\n• `/nx-solve 문제 설명` - 과거 해결 사례 검색\n• `/nx-ask 질문 내용` - 기존 문서 검색\n• `/tech-help 검색어` - 기술 도움말\n• `/nx-summary` - 전체 요약"
+          }
+        },
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: "*🔍 또는 이렇게 사용하세요:*\n• `@bot 질문 내용` - 멘션으로 질문\n• DM으로 직접 질문하기"
+          }
+        }
+      ],
+      response_type: "ephemeral"
+    });
+  }
+
+  // 일반 명령어를 봇 특화 명령어로 리다이렉션
+  async handleRedirectCommand(command, ack, respond, client, oldCommand, newCommand) {
+    await ack();
+
+    console.log(`🔄 ${oldCommand} → ${newCommand} 리다이렉션`);
+
+    await respond({
+      text: `🔄 \`${oldCommand}\` 대신 \`${newCommand}\`를 사용해주세요`,
+      blocks: [
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: `🔄 *\`${oldCommand}\` 대신 \`${newCommand}\`를 사용해주세요*`
+          }
+        },
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: "이 봇은 다른 봇들과 명령어 충돌을 피하기 위해 전용 명령어를 사용합니다."
+          }
+        },
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: "*🎯 Nexon 기술팀 전용 명령어:*\n• `/nx-ask` - 문서 검색\n• `/nx-solve` - 문제 해결 사례 검색\n• `/nx-summary` - 전체 요약\n• `/tech-help` - 기술 도움말"
+          }
+        },
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: `*💡 다시 시도해보세요:*\n\`${newCommand} ${command.text || "내용을 입력하세요"}\``
+          }
+        }
+      ],
+      response_type: "ephemeral"
+    });
   }
 
   // RAG 검색 수행
@@ -777,7 +912,7 @@ ${recentPages.map((page) => `- ${page.title} (${page.lastEdited})`).join("\n")}
           type: "section",
           text: {
             type: "mrkdwn",
-            text: "*⚡ 슬래시 명령어:*\n• `/solve 문제 설명` - 과거 해결 사례 검색\n• `/ask 질문 내용` - 기존 문서 검색\n• `/rag 검색어` - RAG 검색\n• `/summary` - 전체 요약"
+            text: "*⚡ 슬래시 명령어:*\n• `/nx-solve 문제 설명` - 과거 해결 사례 검색\n• `/nx-ask 질문 내용` - 기존 문서 검색\n• `/tech-help 검색어` - 기술 도움말\n• `/nx-summary` - 전체 요약"
           }
         },
         {
@@ -791,7 +926,7 @@ ${recentPages.map((page) => `- ${page.title} (${page.lastEdited})`).join("\n")}
           type: "section",
           text: {
             type: "mrkdwn",
-            text: "*🔍 문제 해결 기능:*\n• `/solve SF 적재 지연 문제` - 과거 해결 사례 검색\n• `/rag API 오류 해결 방법` - RAG 기반 문제 해결\n• 멘션으로 문제 질문하면 자동으로 해결 사례 검색"
+            text: "*🔍 문제 해결 기능:*\n• `/nx-solve SF 적재 지연 문제` - 과거 해결 사례 검색\n• `/tech-help API 오류 해결 방법` - 기술 도움말\n• 멘션으로 문제 질문하면 자동으로 해결 사례 검색"
           }
         },
         {
@@ -866,6 +1001,17 @@ ${recentPages.map((page) => `- ${page.title} (${page.lastEdited})`).join("\n")}
 
       // Slack 앱 시작
       await this.app.start();
+
+      // 봇 정보 확인
+      try {
+        const authResult = await this.app.client.auth.test();
+        console.log("🤖 봇 정보:");
+        console.log(`   봇 이름: ${authResult.user}`);
+        console.log(`   봇 ID: ${authResult.user_id}`);
+        console.log(`   워크스페이스: ${authResult.team}`);
+      } catch (error) {
+        console.log("⚠️ 봇 정보 확인 실패:", error.message);
+      }
 
       console.log("✅ Slack-Notion Bot 시작 완료!");
       console.log("🔗 Socket Mode로 연결됨");
